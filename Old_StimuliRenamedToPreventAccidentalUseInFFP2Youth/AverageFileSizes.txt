@@ -1,0 +1,23 @@
+\\megstoreemo2.uni-muenster.de\EmoData\trajdos\MatlabWorkspace\ComplexityCalculator.m
+
+
+>> ComplexityCalculator.m
+Folder: lowneg
+Avg file size: 264.03 KB
+File size range: Min 170.46 KB, Max 397.62 KB
+
+Folder: lowpos
+Avg file size: 258.91 KB
+File size range: Min 153.81 KB, Max 370.60 KB
+
+Folder: highneg
+Avg file size: 219.91 KB
+File size range: Min 121.80 KB, Max 382.90 KB
+
+Folder: highpos
+Avg file size: 245.12 KB
+File size range: Min 151.36 KB, Max 368.20 KB
+
+Folder: neutral
+Avg file size: 153.39 KB
+File size range: Min 126.38 KB, Max 216.83 KB
