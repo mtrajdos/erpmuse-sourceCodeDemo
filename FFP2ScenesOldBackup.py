@@ -7,6 +7,7 @@ from kivy.graphics import Color, Rectangle
 import numpy as np
 import os
 from datetime import datetime
+import pytz
 import random
 
 class FFP2ScenesApp(App):
@@ -60,10 +61,10 @@ class FFP2ScenesApp(App):
 
     def setup_logging(self):
         """Sets up the log file for recording trial data."""
-        log_dir = os.path.join(r'\\megstoreemo2.uni-muenster.de\EmoData\trajdos\FFP2\LogScenes')
+        log_dir = os.path.join(os.getcwd(), 'LogScenes')  # Get the LogScenes folder in the current directory
         if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            os.makedirs(log_dir)  # Create the folder if it doesn't exist
+        timestamp = datetime.now(pytz.timezone('Europe/Berlin')).strftime('%Y%m%d_%H%M%S')  # Adjust for your timezone
         log_filename = os.path.join(log_dir, f'FFP-{self.int_SubNumber}-{self.int_Block}_{timestamp}.txt')
         self.datafilepointer = open(log_filename, 'w')
         # Write header to log file
@@ -71,7 +72,7 @@ class FFP2ScenesApp(App):
 
     def on_start(self):
         """Starts the experiment and sets the app to fullscreen mode."""
-        Window.fullscreen = True
+        Window.fullscreen = 'auto'  # Set to true fullscreen
         self.show_instructions()
 
     def show_instructions(self):
@@ -92,26 +93,24 @@ class FFP2ScenesApp(App):
             self.image.reload()
             self.instruction_index += 1
         else:
-            self.label.text = "The images will start after the next key press."
+            self.schedule_next_trial()  # Proceed to the first trial
 
     def on_key_down(self, window, key, *args):
-        """Handles key press events to move forward in the experiment."""
+        """Handles key press events to move forward in the experiment.""" 
         if self.instruction_index < len(self.instruction_images):
             self.show_next_instruction()
-        elif self.current_trial == 0:
-            self.schedule_next_trial()
         else:
-            self.show_trial(0)  # Pass a dummy value for dt
+            self.schedule_next_trial()
 
     def schedule_next_trial(self, dt=None):
-        """Schedules the next trial, starting with the fixation cross."""
+        """Schedules the next trial, starting with the fixation cross.""" 
         if self.current_trial < len(self.RandVec):
             Clock.schedule_once(self.show_fixation_cross, 0)
         else:
             self.end_experiment()
 
     def show_fixation_cross(self, dt):
-        """Displays a fixation cross before showing the stimulus image."""
+        """Displays a fixation cross before showing the stimulus image.""" 
         with self.layout.canvas.before:
             Color(119/255, 119/255, 119/255)  # Set background to grey
             self.rect = Rectangle(size=self.layout.size, pos=self.layout.pos)
@@ -122,7 +121,8 @@ class FFP2ScenesApp(App):
         Clock.schedule_once(self.show_trial, self.fixation_duration)
 
     def show_trial(self, dt):
-        """Displays the stimulus image for the current trial."""
+        """Displays the stimulus image for the current trial.""" 
+        self.timestamp = datetime.now(pytz.timezone('Europe/Berlin'))  # Retrieve current time for logging
         stim_file = self.scene_stimuli[self.current_trial]
         self.current_trial += 1
         stim_path = os.path.join('StimuliRenamedToPreventAccidentalUseInFFP2Youth', 'scenes', stim_file)
@@ -133,10 +133,9 @@ class FFP2ScenesApp(App):
         Clock.schedule_once(self.log_data_and_schedule_next, self.int_DurationPic)
 
     def log_data_and_schedule_next(self, dt):
-        """Logs the data for the current trial and schedules the next."""
-        timestamp = datetime.now()
-        date_str = timestamp.strftime('%Y-%m-%d')
-        time_str = timestamp.strftime('%H:%M:%S.%f')[:-3]  # Log with millisecond precision
+        """Logs the data for the current trial and schedules the next.""" 
+        date_str = self.timestamp.strftime('%Y-%m-%d')
+        time_str = self.timestamp.strftime('%H:%M:%S.%f')[:-3]  # Log with millisecond precision
         try:
             stimulus_filename = self.scene_stimuli[self.current_trial - 1]
             self.ITI = self.ITIs[self.current_trial - 1]  # Assign ITI for this trial
@@ -148,15 +147,14 @@ class FFP2ScenesApp(App):
         self.schedule_next_trial()
 
     def end_experiment(self):
-        """Closes the log file and ends the experiment."""
+        """Closes the log file and ends the experiment.""" 
         self.datafilepointer.close()
         self.image.source = ""
         self.image.reload()
 
     def build(self):
-        """Builds the Kivy layout and returns it."""
+        """Builds the Kivy layout and returns it.""" 
         return self.layout
-
 
 if __name__ == '__main__':
     FFP2ScenesApp(1, 0).run()
