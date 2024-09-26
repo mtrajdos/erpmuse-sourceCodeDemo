@@ -57,6 +57,11 @@ end
 
 %% Defaults for 3 blocks x 4 categories of stimuli x 25 different stimuli per group x 3 presentations each block (+ one Pre-Baseline-Block with only 2 presentations of each stimulus=100 trials) 
 %(= block 1-3 = 300 stimuli respectively) 
+% 25 stimuli per group is the best available at the time of writing this
+% script matching the physical picture parameters, such as resolution and
+% quality, color balance and brightness, size and aspect ratio, as well as
+% contrast, sharpness and visibility of the contents in the image itself
+% 50 pictures typically achieves good signal to noise ratio
 
 %loads the vector consisting of numbers 1 - 4 for each condition (the vecttor*.txt-file can be created with function createvec.m and has to be converted into txt-file format via ibb_cell2file.m)
 if int_Block == 0
@@ -163,8 +168,9 @@ elseif int_Block == 3
     ntrials = (numel(highpos)+numel(lowpos)+numel(highneg)+numel(lowneg))*3;
 end
 
-
-% files
+% Log the experiment into a .txt file under LogScenes\
+% Log contains filenames of displayed scenes, subject no etc.
+% Filename follows the FFP-<subjno>.txt format
 string_LogDir = strcat(string_ParadigmDir,'LogScenes\');
 if int_Block == 0
     string_DATfilename = strcat(string_LogDir,'FFP-',num2str(int_SubNumber),'-0.txt'); % name of data file to write to
@@ -179,6 +185,8 @@ if exist(string_DATfilename, 'file')
      string_DATfilename=[ string_DATfilename,'.' datestr(now,'yyyymmdd_HH_MM_SS')];
 end
 % check for existing file (except for subject numbers > 99)
+% Check to not overwrite data files for subject number that already exists,
+% unless it is subject 99 (test subject)
 if int_SubNumber<99 && fopen(string_DATfilename, 'rt')~=-1
     fclose all;
     error('data files exist!');
@@ -292,6 +300,10 @@ end
     WaitSecs(.001);
     
     % display a centered red circle
+    % This works as a fixation point for reliably anchoring participant's
+    % gaze, noted that this fixation point should not be "stared at"
+    % too much to avoid perception of image content around it
+    % Does not really matter whether it is a cross or a dot
     Screen('FillOval', w, [238 59 59], [hCenter-FixSize,vCenter-FixSize,hCenter+FixSize,vCenter+FixSize]);
      
     
@@ -309,11 +321,16 @@ end
      
     
     %filedescription
-    if int_Block == 0     
+    if int_Block == 0
+        % Pre-baseline: presenting pictures once to reduce unfamiliarity
+        % effect, data is not stored for this one
         fprintf(datafilepointer, '%s\n\n', 'Pre-Baseline');
     elseif int_Block == 1
+        % Baseline, presentation of images without stimulation
         fprintf(datafilepointer, '%s\n\n', 'Baseline');
     elseif int_Block == 2
+        % TCDS - transcranial direct stimulation
+        % The script originally copied from that study, hence its presence
         fprintf(datafilepointer, '%s\n\n', 'TDCS_I');
     elseif int_Block == 3
         fprintf(datafilepointer, '%s\n\n', 'TDCS_II');
