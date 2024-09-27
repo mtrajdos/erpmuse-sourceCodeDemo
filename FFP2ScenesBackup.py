@@ -18,6 +18,7 @@ class FFP2ScenesApp(App):
         self.int_DurationPic = 0.6  # Duration for picture display
         self.fixation_duration = 0.5  # Duration for fixation cross
         self.current_trial = 0
+        self.current_block = 1  # Start with the first block
         self.datafilepointer = None
         self.ITIs = self.generate_random_ITIs(375)  # Generate random ITIs
         self.scene_stimuli = []  # This will hold all the mixed emotional scene images
@@ -31,7 +32,7 @@ class FFP2ScenesApp(App):
         self.setup_logging()
 
         # Kivy UI elements
-        self.layout = BoxLayout(orientation='vertical')
+        self.layout = BoxLayout(orientation='horizontal')
         self.image = KivyImage(size_hint=(1, 1), allow_stretch=True, keep_ratio=False)  # Make image fill the window
         self.layout.add_widget(self.image)
 
@@ -85,12 +86,20 @@ class FFP2ScenesApp(App):
 
     def show_instructions(self):
         """Displays the instruction screens before the trials start.""" 
-        instruction_images = [
-            'Instruktion_prebaseline1.jpg',
-            'Instruktion_prebaseline2.jpg'
-        ]
+        if self.current_block == 1:
+            self.instruction_images = [
+                'Instruktion_prebaseline1.jpg',
+                'Instruktion_prebaseline2.jpg',
+                'Instruktion_prebaseline3.jpg'  # Added the third instruction image
+            ]
+        elif self.current_block == 2:
+            self.instruction_images = ['Instruktion1.jpg', 'Instruktion2.jpg']
+        elif self.current_block == 3:
+            self.instruction_images = ['Instruktion2.jpg']
+        elif self.current_block == 4:
+            self.instruction_images = ['Instruktion3.jpg']  # Adjusted instruction image for the last block
+
         self.instruction_index = 0
-        self.instruction_images = instruction_images
         self.show_next_instruction()
 
     def show_next_instruction(self):
@@ -101,6 +110,7 @@ class FFP2ScenesApp(App):
             self.image.reload()
             self.instruction_index += 1
         else:
+            self.current_trial = 0  # Reset trial for the new block
             self.schedule_next_trial()  # Proceed to the first trial
 
     def on_key_down(self, window, key, *args):
@@ -112,10 +122,27 @@ class FFP2ScenesApp(App):
 
     def schedule_next_trial(self, dt=None):
         """Schedules the next trial, starting with the fixation cross.""" 
-        if self.current_trial < len(self.RandVec):
+        if self.current_block == 1 and self.current_trial >= 125:  # Check if in the pre-baseline block
+            self.current_block += 1  # Move to the next block
+            self.show_instructions()  # Show end of pre-baseline instructions
+            self.current_trial = 0  # Reset trial for the new block
+        elif self.current_block == 2 and self.current_trial >= 125:  # Check if in block 2
+            self.current_block += 1  # Move to block 3
+            self.show_instructions()  # Show instructions for block 3
+            self.current_trial = 0  # Reset trial for the new block
+        elif self.current_block == 3 and self.current_trial >= 125:  # Check if in block 3
+            self.current_block += 1  # Move to block 4
+            self.show_instructions()  # Show instructions for block 4
+            self.current_trial = 0  # Reset trial for the new block
+        elif self.current_trial < len(self.RandVec):
             Clock.schedule_once(self.show_fixation_cross, 0)
         else:
-            self.end_experiment()
+            if self.current_block < 4:
+                self.current_block += 1
+                self.show_instructions()  # Show instructions for the next block
+                self.current_trial = 0  # Reset trial for the new block
+            else:
+                self.end_experiment()
 
     def show_fixation_cross(self, dt):
         """Displays a fixation cross before showing the stimulus image.""" 
@@ -130,6 +157,11 @@ class FFP2ScenesApp(App):
 
     def show_trial(self, dt):
         """Displays the stimulus image for the current trial.""" 
+        if self.current_trial >= len(self.scene_stimuli):
+            print(f"Error: Trial index {self.current_trial} exceeds the number of stimuli ({len(self.scene_stimuli)}).")
+            self.end_experiment()
+            return
+    
         self.timestamp = datetime.now(pytz.timezone('Europe/Berlin'))  # Retrieve current time for logging
         stim_file = self.scene_stimuli[self.current_trial]
         self.current_trial += 1
