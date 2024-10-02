@@ -11,14 +11,13 @@ import pytz
 import random
 
 class FFP2ScenesApp(App):
-    def __init__(self, int_SubNumber, int_Block, **kwargs):
+    def __init__(self, int_SubNumber, **kwargs):
         super().__init__(**kwargs)
         self.int_SubNumber = int_SubNumber
-        self.int_Block = int_Block
         self.int_DurationPic = 0.6  # Duration for picture display
         self.fixation_duration = 0.5  # Duration for fixation cross
         self.current_trial = 0
-        self.current_block = 1  # Start with the first block
+        self.current_block = 0  # Start with the prebaseline block 0
         self.datafilepointer = None
         self.ITIs = self.generate_random_ITIs(500)  # Generate random ITIs
         self.scene_stimuli = []  # This will hold all the mixed emotional scene images
@@ -74,7 +73,7 @@ class FFP2ScenesApp(App):
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)  # Create the folder if it doesn't exist
         timestamp = datetime.now(pytz.timezone('Europe/Berlin')).strftime('%Y%m%d_%H%M%S')  # Adjust for your timezone
-        log_filename = os.path.join(log_dir, f'FFP-{self.int_SubNumber}-{self.int_Block}_{timestamp}.txt')
+        log_filename = os.path.join(log_dir, f'FFP-{self.int_SubNumber}-{self.current_block}_{timestamp}.txt')
         self.datafilepointer = open(log_filename, 'w')
         # Write header to log file
         self.datafilepointer.write('Date\t\tTime\t\tSub_Nr\tBlock\tTrial\tITI\tPic_Duration\tStimulus\n')
@@ -86,18 +85,19 @@ class FFP2ScenesApp(App):
 
     def show_instructions(self):
         """Displays the instruction screens before the trials start.""" 
-        if self.current_block == 1:
+        if self.current_block == 0:
             self.instruction_images = [
                 'Instruktion_prebaseline1.jpg',
                 'Instruktion_prebaseline2.jpg'
             ]
-        elif self.current_block == 2:
+        elif self.current_block == 1:
             self.instruction_images = ['Instruktion1.jpg', 'Instruktion2.jpg']
+        elif self.current_block == 2:
+            self.instruction_images = ['Instruktion2.jpg']
         elif self.current_block == 3:
             self.instruction_images = ['Instruktion2.jpg']
         elif self.current_block == 4:
             self.instruction_images = ['Instruktion3.jpg']  # Adjusted instruction image for the last block
-
         self.instruction_index = 0
         self.show_next_instruction()
 
@@ -116,22 +116,27 @@ class FFP2ScenesApp(App):
         """Handles key press events to move forward in the experiment.""" 
         if self.instruction_index < len(self.instruction_images):
             self.show_next_instruction()
+        elif self.current_block == 4:
+            exit() 
         else:
             self.schedule_next_trial()
 
     def schedule_next_trial(self, dt=None):
         """Schedules the next trial, starting with the fixation cross.""" 
-        if self.current_block == 1 and self.current_trial >= 125:  # Check if in the pre-baseline block
-            self.current_block += 1  # Move to the next block
+        if self.current_block == 0 and self.current_trial >= 125:  # Check if in the pre-baseline block 0
+            np.random.shuffle(self.scene_stimuli)
+            self.current_block += 1  # Move to block 1
             self.show_instructions()  # Show end of pre-baseline instructions
             self.current_trial = 0  # Reset trial for the new block
+        elif self.current_block == 1 and self.current_trial >= 125:  # Check if in block 1
+            np.random.shuffle(self.scene_stimuli)
+            self.current_block += 1  # Move to block 2
+            self.show_instructions()  # Show instructions for block 2
+            self.current_trial = 0  # Reset trial for the new block
         elif self.current_block == 2 and self.current_trial >= 125:  # Check if in block 2
+            np.random.shuffle(self.scene_stimuli)
             self.current_block += 1  # Move to block 3
             self.show_instructions()  # Show instructions for block 3
-            self.current_trial = 0  # Reset trial for the new block
-        elif self.current_block == 3 and self.current_trial >= 125:  # Check if in block 3
-            self.current_block += 1  # Move to block 4
-            self.show_instructions()  # Show instructions for block 4
             self.current_trial = 0  # Reset trial for the new block
         elif self.current_trial < len(self.RandVec):
             Clock.schedule_once(self.show_fixation_cross, 0)
@@ -177,7 +182,7 @@ class FFP2ScenesApp(App):
         try:
             stimulus_filename = self.scene_stimuli[self.current_trial - 1]
             self.ITI = self.ITIs[self.current_trial - 1]  # Assign ITI for this trial
-            log_entry = f'{date_str}\t{time_str}\t{self.int_SubNumber}\t{self.int_Block}\t{self.current_trial}\t{self.ITI:.3f}\t{self.int_DurationPic}\t\t{stimulus_filename}\n'
+            log_entry = f'{date_str}\t{time_str}\t{self.int_SubNumber}\t{self.current_block}\t{self.current_trial}\t{self.ITI:.3f}\t{self.int_DurationPic}\t\t{stimulus_filename}\n'
             self.datafilepointer.write(log_entry)
             self.datafilepointer.flush()  # Ensure data is written to file
         except Exception as e:
@@ -195,4 +200,4 @@ class FFP2ScenesApp(App):
         return self.layout
 
 if __name__ == '__main__':
-    FFP2ScenesApp(1, 0).run()
+    FFP2ScenesApp(1).run()
