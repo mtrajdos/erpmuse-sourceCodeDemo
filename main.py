@@ -9,6 +9,7 @@ import os
 from datetime import datetime
 import pytz
 import random
+import platform
 
 class FFP2ScenesApp(App):
     def __init__(self, int_SubNumber, **kwargs):
@@ -68,24 +69,29 @@ class FFP2ScenesApp(App):
             self.preloaded_images[filename] = KivyImage(source=image_path)  # Pre-load image
 
     def setup_logging(self):
-        """Sets up the log file for recording trial data.""" 
-        log_dir = os.path.join(os.path.expanduser('~'), 'Download')  # Path for log file in the Download folder
+        """Sets up the log file for recording trial data."""
+        # Determine the appropriate log directory based on the platform
+        if platform.system() == 'Windows':
+            log_dir = os.path.join(os.getcwd(), 'LogScenes')  # For Windows, save in current working directory
+        else:
+            log_dir = os.path.join('/storage/emulated/0/Download', 'LogScenes')  # For Android, save in Download folder
+
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)  # Create the folder if it doesn't exist
+
         timestamp = datetime.now(pytz.timezone('Europe/Berlin')).strftime('%Y%m%d_%H%M%S')  # Adjust for your timezone
         log_filename = os.path.join(log_dir, f'FFP-{self.int_SubNumber}-{self.current_block}_{timestamp}.txt')
         self.datafilepointer = open(log_filename, 'w')
         # Write header to log file
         self.datafilepointer.write('Date\t\tTime\t\tSub_Nr\tBlock\tTrial\tITI\tPic_Duration\tStimulus\n')
 
-
     def on_start(self):
-        """Starts the experiment and sets the app to fullscreen mode.""" 
+        """Starts the experiment and sets the app to fullscreen mode."""
         Window.fullscreen = 'auto'  # Set to true fullscreen
         self.show_instructions()
 
     def show_instructions(self):
-        """Displays the instruction screens before the trials start.""" 
+        """Displays the instruction screens before the trials start."""
         if self.current_block == 0:
             self.instruction_images = [
                 'Instruktion_prebaseline1.jpg',
@@ -103,7 +109,7 @@ class FFP2ScenesApp(App):
         self.show_next_instruction()
 
     def show_next_instruction(self):
-        """Displays the next instruction image.""" 
+        """Displays the next instruction image."""
         if self.instruction_index < len(self.instruction_images):
             instr_path = os.path.join(os.path.dirname(__file__), self.instruction_images[self.instruction_index])
             self.image.source = instr_path
@@ -152,7 +158,7 @@ class FFP2ScenesApp(App):
                 self.current_trial = 0  # Reset trial for the new block
 
     def show_fixation_cross(self, dt):
-        """Displays a fixation cross before showing the stimulus image.""" 
+        """Displays a fixation cross before showing the stimulus image."""
         with self.layout.canvas.before:
             Color(119/255, 119/255, 119/255)  # Set background to grey
             self.rect = Rectangle(size=self.layout.size, pos=self.layout.pos)
@@ -163,12 +169,12 @@ class FFP2ScenesApp(App):
         Clock.schedule_once(self.show_trial, self.fixation_duration)
 
     def show_trial(self, dt):
-        """Displays the stimulus image for the current trial.""" 
+        """Displays the stimulus image for the current trial."""
         if self.current_trial >= len(self.scene_stimuli):
             print(f"Error: Trial index {self.current_trial} exceeds the number of stimuli ({len(self.scene_stimuli)}).")
             self.end_experiment()
             return
-    
+
         self.timestamp = datetime.now(pytz.timezone('Europe/Berlin'))  # Retrieve current time for logging
         stim_file = self.scene_stimuli[self.current_trial]
         self.current_trial += 1
@@ -179,7 +185,7 @@ class FFP2ScenesApp(App):
         Clock.schedule_once(self.log_data_and_schedule_next, self.int_DurationPic)
 
     def log_data_and_schedule_next(self, dt):
-        """Logs the data for the current trial and schedules the next.""" 
+        """Logs the data for the current trial and schedules the next."""
         date_str = self.timestamp.strftime('%Y-%m-%d')
         time_str = self.timestamp.strftime('%H:%M:%S.%f')[:-3]  # Log with millisecond precision
         try:
@@ -193,13 +199,13 @@ class FFP2ScenesApp(App):
         self.schedule_next_trial()
 
     def end_experiment(self):
-        """Closes the log file and ends the experiment.""" 
+        """Closes the log file and ends the experiment."""
         self.datafilepointer.close()
         self.image.source = ""
         self.image.reload()
 
     def build(self):
-        """Builds the Kivy layout and returns it.""" 
+        """Builds the Kivy layout and returns it."""
         return self.layout
 
 if __name__ == '__main__':
