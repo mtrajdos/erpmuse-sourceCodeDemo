@@ -69,7 +69,7 @@ class FFP2ScenesApp(App):
             self.preloaded_images[filename] = KivyImage(source=image_path)  # Pre-load image
 
     def setup_logging(self):
-        """Sets up the log file for recording trial data."""
+        """Sets up the log file for recording trial data. Check for platform to save in an accessible folder for non-rooted mobile devices."""
         # Determine the appropriate log directory based on the platform
         if platform.system() == 'Windows':
             log_dir = os.path.join(os.getcwd(), 'LogScenes')  # For Windows, save in current working directory
