@@ -10,16 +10,11 @@ from datetime import datetime
 import pytz
 import random
 import platform
-from oscServer import OscServer
-from pythonosc import udp_client
-import threading
-import socket
 
 
 class FFP2ScenesApp(App):
     def __init__(self, int_SubNumber, **kwargs):
         super().__init__(**kwargs)
-        self.osc_server = OscServer()  # Instantiate the OSC server
         self.int_SubNumber = int_SubNumber
         self.scene_time = None
         self.cross_time = None
@@ -31,9 +26,6 @@ class FFP2ScenesApp(App):
         self.ITIs = self.generate_random_ITIs(500)  # Generate random ITIs
         self.scene_stimuli = []  # This will hold all the mixed emotional scene images
         self.preloaded_images = {}  # Dictionary to hold preloaded images
-
-        # OSC Client Initialization
-        self.client = udp_client.SimpleUDPClient('127.0.0.1', 1337)  # Adjust IP and port as needed
 
         # Load the stimulus vectors (randomized trial order)
         self.load_vector_file("veclength300.txt")
@@ -51,10 +43,6 @@ class FFP2ScenesApp(App):
 
         # Bind key press event
         Window.bind(on_key_down=self.on_key_down)
-
-    def start_osc_server(self):
-        """Starts the OSC server on a separate thread."""
-        self.osc_server.start()  # Start the server
 
     def generate_random_ITIs(self, num_ITIs):
         """Generate random ITIs between 1000ms and 2000ms."""
@@ -118,15 +106,9 @@ class FFP2ScenesApp(App):
             "CrossTime\t\tSceneTime\t\tSub_Nr\tBlock\tTrial\tITI\tPic_Duration\tStimulus\n"
         )
 
-    def handle_osc_message(self, address, *args):
-        """Handles incoming OSC messages."""
-        print(f"Received OSC message: {address} {args}")
-        # Add message processing logic here if needed
-
     def on_start(self):
         """Starts the experiment and sets the app to fullscreen mode."""
         Window.fullscreen = "auto"  # Set to true fullscreen
-        self.start_osc_server()  # Start OSC server
         self.show_instructions()
 
     def show_instructions(self):
@@ -204,7 +186,7 @@ class FFP2ScenesApp(App):
             else:
                 self.show_instructions()  # Show instructions for the next block if not finished yet
                 self.current_trial = 0  # Reset trial for the new block
-        
+
     def show_fixation_cross(self, dt):
         """Displays a fixation cross before showing the stimulus image."""
         with self.layout.canvas.before:
@@ -220,7 +202,7 @@ class FFP2ScenesApp(App):
         self.cross_time = now.timestamp()  # Store CrossTime
 
         Clock.schedule_once(self.show_trial, self.fixation_duration)
-        
+
     def show_trial(self, dt):
         """Displays the stimulus image for the current trial."""
         if self.current_trial >= len(self.scene_stimuli):
@@ -251,53 +233,18 @@ class FFP2ScenesApp(App):
         print(f"Logged: {log_entry.strip()}")  # Debugging statement to see what is logged
 
         Clock.schedule_once(self.log_data_and_schedule_next, self.int_DurationPic)
-        
+
     def log_data_and_schedule_next(self, dt):
         """Logs the data for the current trial and schedules the next."""
         # The logging in show_trial already logs the data
         self.datafilepointer.flush()  # Ensure data is written to disk
         self.schedule_next_trial()
 
-    def show_stimulus_image(self, dt):
-        """Displays the stimulus image for the current trial."""
-        if self.current_trial < len(self.RandVec):
-            stimulus_index = self.RandVec[self.current_trial]
-            stimulus_image = self.scene_stimuli[stimulus_index]
-            image_path = os.path.join(
-                "StimuliRenamedToPreventAccidentalUseInFFP2Youth", "scenes", stimulus_image
-            )
-            self.image.source = image_path
-            self.image.reload()
-
-            self.scene_time = datetime.now(pytz.timezone("Europe/Berlin")).strftime("%Y-%m-%d %H:%M:%S")
-            Clock.schedule_once(self.log_data, self.int_DurationPic)
-
-            # OSC message to notify stimulus display
-            self.client.send_message("/stimulus/display", stimulus_image)
-
-            self.current_trial += 1
-            Clock.schedule_once(self.schedule_next_trial, self.int_DurationPic + self.ITIs[self.current_trial - 1])
-
-    def log_data(self, dt):
-        """Logs the data to the log file."""
-        if self.datafilepointer is not None:
-            log_entry = f"{self.cross_time}\t{self.scene_time}\t{self.int_SubNumber}\t{self.current_block}\t{self.current_trial}\t{self.ITIs[self.current_trial - 1]:.2f}\t{self.int_DurationPic:.2f}\t{self.scene_stimuli[self.RandVec[self.current_trial - 1]]}\n"
-            self.datafilepointer.write(log_entry)
-
     def end_experiment(self):
-        """Ends the experiment and closes the log file."""
-        if self.datafilepointer is not None:
-            self.datafilepointer.close()
-        self.stop()
-        print("Experiment finished. Goodbye!")
-
-    def on_stop(self):
-        """Stops the OSC server when the app exits."""
-        if self.osc_server:
-            self.osc_server.server.shutdown()  # Gracefully shut down the OSC server
-            self.osc_server.server.server_close()  # Close the socket
-            print("OSC server stopped.")
-
+        """Closes the log file and ends the experiment."""
+        self.datafilepointer.close()
+        self.image.source = ""
+        self.image.reload()
 
     def build(self):
         """Builds the Kivy layout and returns it."""
