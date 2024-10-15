@@ -1,1 +1,0 @@
-CrossTime,SceneTime,PicDuration,Target_ITI,Actual_ITI,ITI_Error,Block,Trial,Stimulus
