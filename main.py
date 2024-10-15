@@ -14,34 +14,10 @@ from oscServer import OscServer
 from pythonosc import udp_client
 import time
 
-# Initialize EmoScenes class
-#
-# osc_server                OSC server object for receiving data/logging packets
-# int_SubNumber             subject number
-# scene_time                duration of stimulus
-# cross_time                timestamp of displaying fixation cross
-# int_DurationPic           duration of stimulus
-# current_trial             counter of current trial number for logging
-# current_block             counter of current block for logging
-# datafilepointer           for writing log lines
-# ITIs                      array holding generated random ITIs
-# scene_stimuli             array of scene filenames to be displayed
-# preloaded_images          dictionary for preloading all scenes for performance
-# client                    client object for specifying IP and port for OSC
-# layout                    Kivy BoxLayout for displaying stuff in the EmoScenes app
-# image                     Image object for rendering instructions/scenes into it, filling the screen without keeping
-#                           the original image file proportions
-# last_trial_end_time       for timestamping when previous trial ended
-# last_scene_time           for timestamping when stimulus was displayed in the previous trial
-# trial_start_time          for timestamping when new trial has begun
-# intended_iti              target ITI based on the random ITI value determined for current trial
-# next_trial_scheduled      boolean for flagging whether upcoming trial is scheduled or not
-# estimated_processing_time estimate for processing involving timestamping, loading trials and writing into log file
-#                           calculated based on test trial logs and used for adjusting stimulus display accuracy
-
 class EmoScenes(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        print("Initializing EmoScenes")
         self.scene_time = None
         self.cross_time = None
         self.int_DurationPic = 0.600000
@@ -59,49 +35,79 @@ class EmoScenes(App):
         self.current_block = 0
         self.datafilepointer = None
         self.layout = BoxLayout(orientation="horizontal")
+        self.fixation_path = "sprites/fixation_cross.png"
         self.image = KivyImage(size_hint=(1, 1), allow_stretch=True, keep_ratio=False)
         self.layout.add_widget(self.image)
         self.load_vector_file("veclength300.txt")
-        self.load_stimuli()
+        self.load_stimuli_from_folder()
+        self.randomize_stimuli()
         self.setup_logging()
         Window.bind(on_key_down=self.on_key_down)
         self.ITIs = self.generate_random_ITIs(500)
-
+        
     def start_osc_server(self):
+        print("Starting OSC server")
         self.osc_server.start()
 
     def generate_random_ITIs(self, num_ITIs):
+        print(f"Generating {num_ITIs} random ITIs")
         return np.random.uniform(1.000000, 3.000000, num_ITIs)
 
     def load_vector_file(self, vector_file):
-        self.RandVec = np.loadtxt(vector_file, dtype=int).flatten()
+        print(f"Loading vector file: {vector_file}")
+        vector_path = os.path.join(os.path.dirname(__file__), vector_file)
+        if os.path.exists(vector_path):
+            self.RandVec = np.loadtxt(vector_path, dtype=int).flatten()
+            print(f"Loaded {len(self.RandVec)} values from vector file")
+        else:
+            print(f"Error: Vector file not found at {vector_path}")
+            
+    def randomize_stimuli(self):
+        random.shuffle(self.scene_stimuli)
+        print("Stimuli randomized for new block")
+        print(f"First 5 stimuli after randomization: {self.scene_stimuli[:5]}")
 
-    def load_stimuli(self):
-        self.scene_stimuli = self.load_stimuli_from_folder(
-            "StimuliRenamedToPreventAccidentalUseInFFP2Youth/scenes"
-        )
+    def load_stimuli_from_folder(self, folder_name="stimuli"):
+        print(f"Loading stimuli from folder: {folder_name}")
+        self.scene_stimuli = []
+        folder_path = os.path.join(os.path.dirname(__file__), folder_name)
+        print(f"Full path to stimuli folder: {folder_path}")
+        if not os.path.exists(folder_path):
+            print(f"Error: Folder '{folder_path}' does not exist.")
+            return
+        try:
+            all_files = os.listdir(folder_path)
+            print(f"Total files in directory: {len(all_files)}")
+            print(f"First 5 files in directory: {all_files[:5]}")
+            for filename in all_files:
+                if filename.lower().endswith(('.jpg', '.jpeg', '.png')):  # Check for multiple image formats
+                    self.scene_stimuli.append(filename)
+            print(f"Found {len(self.scene_stimuli)} stimuli in {folder_name}")
+            if len(self.scene_stimuli) > 0:
+                print(f"First 5 stimuli: {self.scene_stimuli[:5]}")
+            else:
+                print("No stimuli found. Check file extensions and permissions.")
+        except Exception as e:
+            print(f"Error reading directory: {e}")
         self.preload_images()
 
-    def load_stimuli_from_folder(self, folder_name):
-        stimuli = []
-        folder_path = os.path.join(os.path.dirname(__file__), folder_name)
-        for filename in os.listdir(folder_path):
-            if filename.endswith(".jpg"):
-                stimuli.append(filename)
-        return stimuli
-
     def preload_images(self):
+        print("Preloading images")
         for filename in self.scene_stimuli:
-            image_path = os.path.join(
-                "StimuliRenamedToPreventAccidentalUseInFFP2Youth", "scenes", filename
-            )
-            self.preloaded_images[filename] = KivyImage(source=image_path)
+            image_path = os.path.join(os.path.dirname(__file__), "stimuli", filename)
+            if os.path.exists(image_path):
+                self.preloaded_images[filename] = KivyImage(source=image_path)
+                print(f"Preloaded: {filename}")
+            else:
+                print(f"Error: Image file not found: {image_path}")
+        print(f"Preloaded {len(self.preloaded_images)} images")
 
     def setup_logging(self):
+        print("Setting up logging")
         if platform.system() == "Windows":
-            log_dir = os.path.join(os.getcwd(), "LogScenes")
+            log_dir = os.path.join(os.getcwd(), "logs")
         else:
-            log_dir = os.path.join("/storage/emulated/0/Download", "LogScenes")
+            log_dir = os.path.join("/storage/emulated/0/Download", "logs")
 
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
@@ -125,11 +131,13 @@ class EmoScenes(App):
         print(f"Received OSC message: {address} {args}")
 
     def on_start(self):
+        print("Application starting")
         Window.fullscreen = "auto"
         self.start_osc_server()
         self.show_instructions()
 
     def show_instructions(self):
+        print(f"Showing instructions for block {self.current_block}")
         if self.current_block == 0:
             self.instruction_images = [
                 "Instruktion_prebaseline1.jpg",
@@ -147,19 +155,28 @@ class EmoScenes(App):
         self.show_next_instruction()
 
     def show_next_instruction(self):
+        print(f"Showing instruction {self.instruction_index + 1} of {len(self.instruction_images)}")
         if self.instruction_index < len(self.instruction_images):
             instr_path = os.path.join(
                 os.path.dirname(__file__),
+                "instructionsDE",
                 self.instruction_images[self.instruction_index],
             )
-            self.image.source = instr_path
-            self.image.reload()
+            print(f"Instruction image path: {instr_path}")
+            if os.path.exists(instr_path):
+                self.image.source = instr_path
+                self.image.reload()
+                print(f"Loaded instruction image: {self.instruction_images[self.instruction_index]}")
+            else:
+                print(f"Error: Instruction image not found: {instr_path}")
             self.instruction_index += 1
         else:
+            print("All instructions shown, starting trials")
             self.current_trial = 0
             self.schedule_next_trial()
 
     def on_key_down(self, window, key, *args):
+        print(f"Key pressed: {key}")
         if self.instruction_index < len(self.instruction_images):
             self.show_next_instruction()
         elif self.current_block == 4:
@@ -172,6 +189,9 @@ class EmoScenes(App):
         if self.next_trial_scheduled:
             return
 
+        print(f"Scheduling trial {self.current_trial} in block {self.current_block}")
+        print(f"Total stimuli: {len(self.scene_stimuli)}")
+
         current_time = time.time()
         if self.last_trial_end_time is not None:
             actual_iti = current_time - self.last_trial_end_time
@@ -179,29 +199,20 @@ class EmoScenes(App):
         else:
             actual_iti = 0
 
-        if self.current_block == 0 and self.current_trial >= 125:
-            np.random.shuffle(self.scene_stimuli)
+        if self.current_trial >= 125:
             self.current_block += 1
-            self.show_instructions()
-            self.current_trial = 0
-        elif self.current_block == 1 and self.current_trial >= 125:
-            np.random.shuffle(self.scene_stimuli)
-            self.current_block += 1
-            self.show_instructions()
-            self.current_trial = 0
-        elif self.current_block == 2 and self.current_trial >= 125:
-            np.random.shuffle(self.scene_stimuli)
-            self.current_block += 1
-            self.show_instructions()
-            self.current_trial = 0
-        elif self.current_block == 3 and self.current_trial >= 125:
-            self.current_block += 1
-            self.show_instructions()
-        elif self.current_trial < len(self.RandVec):
+            if self.current_block < 4:
+                self.randomize_stimuli()  # Randomize stimuli at the start of each new block
+                self.show_instructions()
+                self.current_trial = 0
+            else:
+                self.end_experiment()
+                return
+
+        if self.current_trial < len(self.scene_stimuli):
             self.intended_iti = self.ITIs[self.current_trial]
             print(f"Intended ITI for next trial: {self.intended_iti:.6f} seconds")
             
-            # Calculate fixation duration including compensation for stimulus duration and processing time
             fixation_duration = max(0.100000, self.intended_iti - self.int_DurationPic - self.estimated_processing_time)
             
             print(f"Adjusted fixation duration: {fixation_duration:.6f} seconds")
@@ -209,11 +220,8 @@ class EmoScenes(App):
             Clock.schedule_once(lambda dt: self.show_fixation_cross(fixation_duration), 0)
             self.next_trial_scheduled = True
         else:
-            if self.current_block == 4:
-                self.end_experiment()
-            else:
-                self.show_instructions()
-                self.current_trial = 0
+            print("Error: Ran out of stimuli before block completion")
+            self.end_experiment()
 
         self.last_trial_end_time = current_time
 
@@ -222,7 +230,7 @@ class EmoScenes(App):
         with self.layout.canvas.before:
             Color(119 / 255, 119 / 255, 119 / 255)
             self.rect = Rectangle(size=self.layout.size, pos=self.layout.pos)
-        self.image.source = "fixation_cross.png"
+        self.image.source = self.fixation_path
         self.image.allow_stretch = False
         self.image.keep_ratio = True
         self.image.reload()
@@ -231,9 +239,10 @@ class EmoScenes(App):
         self.cross_time = now.timestamp()
 
         Clock.schedule_once(self.show_trial, duration)
-        
+
     def show_trial(self, dt):
-        print("Showing trial stimulus")
+        print(f"Showing trial stimulus for trial {self.current_trial}")
+        print(f"Total stimuli: {len(self.scene_stimuli)}")
         self.trial_start_time = time.time()
         if self.current_trial >= len(self.scene_stimuli):
             print(f"Error: Trial index {self.current_trial} exceeds the number of stimuli ({len(self.scene_stimuli)}).")
@@ -242,16 +251,26 @@ class EmoScenes(App):
 
         self.timestamp = datetime.now(pytz.timezone("Europe/Berlin"))
         stim_file = self.scene_stimuli[self.current_trial]
+        print(f"Current stimulus: {stim_file}")
 
-        self.current_trial += 1
-        self.image.source = self.preloaded_images[stim_file].source
-        self.image.allow_stretch = True
-        self.image.keep_ratio = False
-        self.image.reload()
+        if stim_file in self.preloaded_images:
+            self.image = self.preloaded_images[stim_file]
+            self.image.allow_stretch = True
+            self.image.keep_ratio = False
+            self.image.size_hint = (1, 1)
+            self.layout.clear_widgets()
+            self.layout.add_widget(self.image)
+            print(f"Loaded stimulus image: {stim_file}")
+        else:
+            print(f"Error: Image {stim_file} not found in preloaded images.")
+            full_path = os.path.join(os.path.dirname(__file__), "stimuli", stim_file)
+            print(f"Attempted to load from: {full_path}")
+            self.end_trial(0)
+            return
         
         now = datetime.now(pytz.timezone("Europe/Berlin"))
         self.scene_time = now.timestamp()
-        target_iti = self.ITIs[self.current_trial - 1]
+        target_iti = self.ITIs[self.current_trial]
 
         actual_iti = self.scene_time - self.last_scene_time if self.last_scene_time is not None else 0
         self.last_scene_time = self.scene_time
@@ -269,15 +288,18 @@ class EmoScenes(App):
         print("Ending trial and scheduling next")
         self.datafilepointer.flush()
         self.next_trial_scheduled = False
+        self.current_trial += 1
         self.schedule_next_trial()
 
     def end_experiment(self):
+        print("Ending experiment")
         if self.datafilepointer is not None:
             self.datafilepointer.close()
         self.stop()
         print("Experiment finished. Goodbye!")
 
     def on_stop(self):
+        print("Stopping application")
         if self.osc_server:
             self.osc_server.server.shutdown()
             self.osc_server.server.server_close()

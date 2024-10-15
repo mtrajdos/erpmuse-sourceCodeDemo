@@ -1,5 +1,0 @@
-lowneg: 121.74 KB
-lowpos: 107.91 KB
-neutral: 102.63 KB
-highneg: 122.44 KB
-highpos: 114.68 KB
