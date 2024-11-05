@@ -10,7 +10,6 @@ from datetime import datetime
 import pytz
 import random
 import platform
-from oscServer import OscServer
 from pythonosc import udp_client
 import time
 
@@ -39,7 +38,6 @@ class EmoScenes(App):
         self.estimated_processing_time = 0.020000
         self.scene_stimuli = []
         self.preloaded_images = {}
-        self.osc_server = OscServer()
         self.showing_instructions = False
         self.ITIs = self.generate_random_ITIs(500)
 
@@ -110,7 +108,6 @@ class EmoScenes(App):
     def on_start(self):
         print("Application starting")
         Window.fullscreen = "auto"
-        self.start_osc_server()
         self.show_instructions()
 
     def start_osc_server(self):
