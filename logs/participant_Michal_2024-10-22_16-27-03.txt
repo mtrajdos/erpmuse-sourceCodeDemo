@@ -1,2 +1,0 @@
-Experiment start time: 2024-10-22 16:27:03.235252+02:00
-Participant info: {"name": "Michal", "surname": "Trajdos", "age": 29}

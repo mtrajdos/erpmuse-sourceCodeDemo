@@ -262,10 +262,6 @@ class EmoScenes(App):
 
     def on_stop(self):
         print("Stopping application")
-        if self.osc_server:
-            self.osc_server.server.shutdown()
-            self.osc_server.server.server_close()
-            print("OSC server stopped.")
 
     def on_window_resize(self, window, width, height):
         self.image.size = (width, height)
