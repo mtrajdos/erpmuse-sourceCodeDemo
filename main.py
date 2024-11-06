@@ -47,6 +47,7 @@ class EmoScenes(App):
         self.image = KivyImage(size_hint=(1, 1), allow_stretch=True, keep_ratio=False)
         self.layout.add_widget(self.image)
         self.fixation_path = "sprites/fixation_cross.png"
+        self.square_path = "sprites/white_square.png"
 
     def load_data(self):
         self.load_stimuli_from_folder()
