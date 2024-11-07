@@ -1,4 +1,3 @@
-
 from kivy.app import App
 from kivy.uix.image import Image as KivyImage
 from kivy.uix.boxlayout import BoxLayout
@@ -44,6 +43,7 @@ class EmoScenes(App):
         # Data structures
         self.scene_stimuli = []
         self.preloaded_images = {}
+        self.preloaded_instructions = {}  # New dict for instruction images
         self.showing_instructions = False
         self.ITIs = self.generate_random_ITIs(500)
         
@@ -80,26 +80,21 @@ class EmoScenes(App):
             opacity=0
         )
         
+        # Create white square with forced corner positioning
         self.white_square = KivyImage(
             source=self.square_path,
             size_hint=(None, None),
-            size=(55, 55),
-            pos=(Window.width - 58, 0),  # Added 3px margin to prevent cutoff
+            size=(110, 110),
+            pos=(Window.width + 812, 0),  # Increased offset for right alignment
             allow_stretch=False,
             keep_ratio=True,
             opacity=0
         )
-
-        # Update binding to maintain the margin
-        Window.bind(size=lambda instance, size: setattr(
-            self.white_square, 'pos', 
-            (size[0] - self.white_square.width - 3, 0)  # Keep 3px margin on resize
-        ))
         
-        # Add widgets in correct order (background first, overlays last)
-        self.layout.add_widget(self.background_image)    # Bottom layer
-        self.layout.add_widget(self.white_square)        # Middle layer
-        self.layout.add_widget(self.fixation_cross)      # Top layer
+        # Add widgets in correct order
+        self.layout.add_widget(self.background_image)
+        self.layout.add_widget(self.white_square)
+        self.layout.add_widget(self.fixation_cross)
         
         # Set initial grey background
         with self.layout.canvas.before:
@@ -109,6 +104,22 @@ class EmoScenes(App):
     def load_data(self):
         self.load_stimuli_from_folder()
         self.randomize_stimuli()
+        self.preload_instruction_images()  # Add instruction preloading
+
+    def preload_instruction_images(self):
+        instruction_sets = {
+            0: ["Instruktion_prebaseline1.jpg", "Instruktion_prebaseline2.jpg"],
+            1: ["Instruktion1.jpg", "Instruktion2.jpg"],
+            2: ["Instruktion2.jpg"],
+            3: ["Instruktion2.jpg"],
+            4: ["Instruktion3.jpg"]
+        }
+        
+        for block, instructions in instruction_sets.items():
+            for instr in instructions:
+                instr_path = os.path.join(os.path.dirname(__file__), "instructionsDE", instr)
+                if os.path.exists(instr_path):
+                    self.preloaded_instructions[instr] = KivyImage(source=instr_path)
 
     def generate_random_ITIs(self, num_ITIs):
         print(f"Generating {num_ITIs} random ITIs")
@@ -195,20 +206,20 @@ class EmoScenes(App):
 
     def show_next_instruction(self):
         if self.instruction_index < len(self.instruction_images):
-            instr_path = os.path.join(os.path.dirname(__file__), "instructionsDE", self.instruction_images[self.instruction_index])
-            if os.path.exists(instr_path):
+            instr_file = self.instruction_images[self.instruction_index]
+            if instr_file in self.preloaded_instructions:
                 # Hide fixation cross and square during instructions
                 self.fixation_cross.opacity = 0
                 self.white_square.opacity = 0
                 
                 # Show instruction on background image
                 self.background_image.opacity = 1
-                self.background_image.source = instr_path
+                self.background_image.source = os.path.join(os.path.dirname(__file__), "instructionsDE", instr_file)
                 self.background_image.reload()
                 
                 print(f"Showing instruction {self.instruction_index + 1} of {len(self.instruction_images)}")
             else:
-                print(f"Error: Instruction image not found: {instr_path}")
+                print(f"Error: Instruction image not found: {instr_file}")
             self.instruction_index += 1
         else:
             print("All instructions shown. Transitioning to trials.")
@@ -314,6 +325,7 @@ class EmoScenes(App):
             return
         
         self.log_trial_data(stim_file)
+        # Schedule end_trial for all trials, including trial 125
         Clock.schedule_once(self.end_trial, self.int_DurationPic)
 
     def log_trial_data(self, stim_file):
@@ -330,9 +342,18 @@ class EmoScenes(App):
     def end_trial(self, dt):
         print("Ending trial and scheduling next")
         self.datafilepointer.flush()
-        self.next_trial_scheduled = False
-        self.current_trial += 1
-        self.schedule_next_trial()
+        
+        # Check if this is trial 125 (end of block)
+        if self.current_trial == 125:
+            # Hide all visual elements after 600ms
+            self.background_image.opacity = 0
+            self.fixation_cross.opacity = 0
+            self.white_square.opacity = 0
+            Clock.schedule_once(lambda dt: self.transition_to_next_block(), 0)
+        else:
+            self.next_trial_scheduled = False
+            self.current_trial += 1
+            self.schedule_next_trial()
 
     def end_experiment(self):
         print("Ending experiment")
