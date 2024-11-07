@@ -1,6 +1,8 @@
+
 from kivy.app import App
 from kivy.uix.image import Image as KivyImage
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.floatlayout import FloatLayout
 from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.graphics import Color, Rectangle
@@ -11,7 +13,6 @@ from datetime import datetime
 import pytz
 import random
 import platform
-from pythonosc import udp_client
 import time
 
 class EmoScenes(App):
@@ -25,29 +26,85 @@ class EmoScenes(App):
         
     def initialize_variables(self):
         print("Initializing EmoScenes")
+        # Timing variables
         self.scene_time = None
         self.cross_time = None
         self.int_DurationPic = 0.600000
+        self.estimated_processing_time = 0.020000
+        
+        # Trial tracking
         self.current_trial = 1
         self.current_block = 0
-        self.client = udp_client.SimpleUDPClient('127.0.0.1', 1337)
         self.last_trial_end_time = None
         self.last_scene_time = None
         self.trial_start_time = None
         self.intended_iti = None
         self.next_trial_scheduled = False
-        self.estimated_processing_time = 0.020000
+        
+        # Data structures
         self.scene_stimuli = []
         self.preloaded_images = {}
         self.showing_instructions = False
         self.ITIs = self.generate_random_ITIs(500)
-
-    def setup_ui(self):
-        self.layout = BoxLayout(orientation="horizontal")
-        self.image = KivyImage(size_hint=(1, 1), allow_stretch=True, keep_ratio=False)
-        self.layout.add_widget(self.image)
+        
+        # Asset paths
         self.fixation_path = "sprites/fixation_cross.png"
         self.square_path = "sprites/white_square.png"
+
+    def setup_ui(self):
+        # Create main layout
+        self.layout = FloatLayout()
+        
+        # Set up grey background
+        with self.layout.canvas.before:
+            Color(119/255, 119/255, 119/255)
+            self.rect = Rectangle(size=self.layout.size, pos=self.layout.pos)
+        
+        # Create background image
+        self.background_image = KivyImage(
+            size_hint=(1, 1),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5},
+            allow_stretch=True,
+            keep_ratio=False,
+            opacity=0
+        )
+        
+        # Create fixation cross
+        self.fixation_cross = KivyImage(
+            source=self.fixation_path,
+            size_hint=(None, None),
+            size=(Window.width * 0.05, Window.height * 0.05),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5},
+            allow_stretch=False,
+            keep_ratio=True,
+            opacity=0
+        )
+        
+        self.white_square = KivyImage(
+            source=self.square_path,
+            size_hint=(None, None),
+            size=(55, 55),
+            pos=(Window.width - 58, 0),  # Added 3px margin to prevent cutoff
+            allow_stretch=False,
+            keep_ratio=True,
+            opacity=0
+        )
+
+        # Update binding to maintain the margin
+        Window.bind(size=lambda instance, size: setattr(
+            self.white_square, 'pos', 
+            (size[0] - self.white_square.width - 3, 0)  # Keep 3px margin on resize
+        ))
+        
+        # Add widgets in correct order (background first, overlays last)
+        self.layout.add_widget(self.background_image)    # Bottom layer
+        self.layout.add_widget(self.white_square)        # Middle layer
+        self.layout.add_widget(self.fixation_cross)      # Top layer
+        
+        # Set initial grey background
+        with self.layout.canvas.before:
+            Color(119 / 255, 119 / 255, 119 / 255)
+            self.rect = Rectangle(size=self.layout.size, pos=self.layout.pos)
 
     def load_data(self):
         self.load_stimuli_from_folder()
@@ -121,6 +178,8 @@ class EmoScenes(App):
         self.showing_instructions = True
         self.instruction_images = self.get_instruction_images()
         self.instruction_index = 0
+        # Ensure cross is hidden before showing instructions
+        self.fixation_cross.opacity = 0
         self.show_next_instruction()
 
     def get_instruction_images(self):
@@ -138,8 +197,15 @@ class EmoScenes(App):
         if self.instruction_index < len(self.instruction_images):
             instr_path = os.path.join(os.path.dirname(__file__), "instructionsDE", self.instruction_images[self.instruction_index])
             if os.path.exists(instr_path):
-                self.image.source = instr_path
-                self.image.reload()
+                # Hide fixation cross and square during instructions
+                self.fixation_cross.opacity = 0
+                self.white_square.opacity = 0
+                
+                # Show instruction on background image
+                self.background_image.opacity = 1
+                self.background_image.source = instr_path
+                self.background_image.reload()
+                
                 print(f"Showing instruction {self.instruction_index + 1} of {len(self.instruction_images)}")
             else:
                 print(f"Error: Instruction image not found: {instr_path}")
@@ -147,6 +213,10 @@ class EmoScenes(App):
         else:
             print("All instructions shown. Transitioning to trials.")
             self.showing_instructions = False
+            # Show the fixation cross immediately after instructions end
+            self.background_image.opacity = 0
+            self.fixation_cross.opacity = 1
+            self.white_square.opacity = 0  # Ensure square is hidden
             self.schedule_next_trial()
 
     def on_key_down(self, window, key, *args):
@@ -197,13 +267,19 @@ class EmoScenes(App):
 
     def show_fixation_cross(self, duration):
         print(f"Showing fixation cross for {duration:.6f} seconds")
+        # Ensure grey background
         with self.layout.canvas.before:
             Color(119 / 255, 119 / 255, 119 / 255)
             self.rect = Rectangle(size=self.layout.size, pos=self.layout.pos)
-        self.image.source = self.fixation_path
-        self.image.allow_stretch = False
-        self.image.keep_ratio = True
-        self.image.reload()
+        
+        # Show fixation cross, hide square
+        self.fixation_cross.opacity = 1
+        self.white_square.opacity = 0
+        self.fixation_cross.size = (Window.width * 0.05, Window.height * 0.05)
+        self.white_square.size = (Window.width * 0.05, Window.height * 0.05)
+        
+        # Hide background image but maintain grey background
+        self.background_image.opacity = 0
         
         self.cross_time = datetime.now(pytz.timezone("Europe/Berlin")).timestamp()
         Clock.schedule_once(self.show_trial, duration)
@@ -222,13 +298,16 @@ class EmoScenes(App):
         print(f"Current stimulus: {stim_file}")
 
         if stim_file in self.preloaded_images:
-            self.layout.clear_widgets()
-            self.image = self.preloaded_images[stim_file]
-            self.layout.add_widget(self.image)
-            self.image.size = Window.size
-            self.image.pos = (0, 0)
-            self.image.reload()
-            print(f"Loaded and displayed stimulus image: {stim_file}")
+            # Show background image
+            self.background_image.opacity = 1
+            self.background_image.source = os.path.join(os.path.dirname(__file__), "stimuli", stim_file)
+            self.background_image.reload()
+            
+            # Show both fixation cross and square
+            self.fixation_cross.opacity = 1
+            self.white_square.opacity = 1
+            
+            print(f"Loaded and displayed stimulus image with overlays: {stim_file}")
         else:
             print(f"Error: Image {stim_file} not found in preloaded images.")
             self.end_trial(0)
@@ -266,7 +345,10 @@ class EmoScenes(App):
         print("Stopping application")
 
     def on_window_resize(self, window, width, height):
-        self.image.size = (width, height)
+        # Update sizes of both overlays on window resize
+        self.fixation_cross.size = (width * 0.05, height * 0.05)
+        self.white_square.size = (width * 0.05, height * 0.05)
+        self.background_image.size = (width, height)
 
     def build(self):
         return self.layout
