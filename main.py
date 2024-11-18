@@ -32,7 +32,7 @@ class SimplifiedEmoScenes(App):
         self.estimated_processing_time = 0.020000
 
         # Trial tracking
-        self.current_trial = 1
+        self.current_trial = 0
         self.current_block = 0
         self.last_trial_end_time = None
         self.last_scene_time = None
@@ -119,7 +119,7 @@ class SimplifiedEmoScenes(App):
 
     def generate_random_ITIs(self, num_ITIs):
         print(f"Generating {num_ITIs} random ITIs")
-        return np.random.uniform(1.000000, 5.000000, num_ITIs)
+        return np.random.uniform(0.500000, 1.000000, num_ITIs)
 
     def setup_logging(self):
         print("Setting up logging")
@@ -205,7 +205,7 @@ class SimplifiedEmoScenes(App):
             actual_iti = current_time - self.last_trial_end_time
             print(f"Actual ITI: {actual_iti:.6f} seconds")
 
-        if self.current_trial > 125:
+        if self.current_trial == 125:
             self.transition_to_next_block()
             return
 
@@ -252,7 +252,6 @@ class SimplifiedEmoScenes(App):
         self.white_square.opacity = 1
         self.white_square.pos = (Window.width - self.white_square.width, 0)
 
-        self.log_trial_data("checkerboard.png")
         Clock.schedule_once(self.end_trial, self.int_DurationPic)
 
     def log_trial_data(self, stim_file):
@@ -267,10 +266,13 @@ class SimplifiedEmoScenes(App):
         print(f"Logged: {log_entry.strip()}")
 
     def end_trial(self, dt):
-        self.datafilepointer.flush()
         
+        self.log_trial_data("checkerboard.png")
+        self.datafilepointer.flush()
+
         # Check if this is trial 125 (end of block)
         if self.current_trial == 125:
+            self.datafilepointer.flush()
             # Hide all visual elements after 600ms
             self.background_image.opacity = 0
             self.fixation_cross.opacity = 0
@@ -285,7 +287,7 @@ class SimplifiedEmoScenes(App):
         self.current_block += 1
         if self.current_block < 4:
             print(f"Transitioning to block {self.current_block}")
-            self.current_trial = 1
+            self.current_trial = 0
             self.show_instructions()
         else:
             self.end_experiment()
