@@ -49,7 +49,7 @@ class SimplifiedEmoScenes(App):
 
         # Asset paths
         self.fixation_path = "sprites/fixation_cross.png"
-        self.square_path = "sprites/red_square.png"
+        self.square_path = "sprites/white_square.png"
 
     def setup_ui(self):
         # Create main layout
