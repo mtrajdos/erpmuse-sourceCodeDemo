@@ -46,10 +46,17 @@ class SimplifiedEmoScenes(App):
         self.preloaded_instructions = {}
         self.showing_instructions = False
         self.ITIs = self.generate_random_ITIs(500)
+        
+        # Square options
+        self.square_options = [
+            'Square-255-255-255.png',
+            'Square-225-225-225.png',
+            'Square-195-195-195.png'
+        ]
+        self.current_square = None
 
         # Asset paths
         self.fixation_path = "sprites/fixation_cross.png"
-        self.square_path = "sprites/white_square.png"
 
     def setup_ui(self):
         # Create main layout
@@ -80,8 +87,10 @@ class SimplifiedEmoScenes(App):
             opacity=0
         )
 
+        # Initialize white square with a default (will be changed randomly per trial)
+        self.current_square = random.choice(self.square_options)
         self.white_square = KivyImage(
-            source=self.square_path,
+            source=os.path.join('sprites', self.current_square),
             size_hint=(None, None),
             size=(55, 55),
             pos=(Window.width - 55, 0),
@@ -119,7 +128,7 @@ class SimplifiedEmoScenes(App):
 
     def generate_random_ITIs(self, num_ITIs):
         print(f"Generating {num_ITIs} random ITIs")
-        return np.random.uniform(2.000000, 4.000000, num_ITIs)
+        return np.random.uniform(1.000000, 3.000000, num_ITIs)
 
     def setup_logging(self):
         print("Setting up logging")
@@ -129,62 +138,60 @@ class SimplifiedEmoScenes(App):
         log_filename = os.path.join(log_dir, f"ShamScenes_{timestamp}.txt")
         try:
             self.datafilepointer = open(log_filename, "w")
-            self.datafilepointer.write("CrossTime,SceneTime,PicDuration,Target_ITI,Actual_ITI,ITI_Error,Block,Trial,Stimulus\n")
+            self.datafilepointer.write("CrossTime,SceneTime,PicDuration,Target_ITI,Actual_ITI,ITI_Error,Block,Trial,Stimulus,Square\n")
             print(f"Log file created: {log_filename}")
         except Exception as e:
             print(f"Error opening log file: {e}")
 
-    def on_start(self):
-        print("Application starting")
-        Window.fullscreen = "auto"
-        self.show_instructions()
+    def show_trial(self, dt):
+        self.trial_start_time = time.time()
 
-    def show_instructions(self):
-        print(f"Showing instructions for block {self.current_block}")
-        self.showing_instructions = True
-        self.instruction_images = self.get_instruction_images()
-        self.instruction_index = 0
-        # Ensure cross is hidden before showing instructions
-        self.fixation_cross.opacity = 0
-        self.show_next_instruction()
+        # Randomly select and update the square for this trial
+        self.current_square = random.choice(self.square_options)
+        self.white_square.source = os.path.join('sprites', self.current_square)
+        self.white_square.reload()
 
-    def get_instruction_images(self):
-        if self.current_block == 0:
-            return ["background.png", "Instruktion_prebaseline1.jpg", "Instruktion_prebaseline2.jpg"]
-        elif self.current_block == 1:
-            return ["Instruktion1.jpg", "Instruktion2.jpg"]
-        elif self.current_block in [2, 3]:
-            return ["Instruktion2.jpg"]
-        elif self.current_block == 4:
-            return ["Instruktion3.jpg"]
-        return []
+        # Show the fixed checkerboard image
+        self.background_image.opacity = 1
+        self.background_image.source = os.path.join(os.path.dirname(__file__), "sprites", "checkerboard.png")
+        self.background_image.reload()
 
-    def show_next_instruction(self):
-        if self.instruction_index < len(self.instruction_images):
-            instr_file = self.instruction_images[self.instruction_index]
-            if instr_file in self.preloaded_instructions:
-                # Hide fixation cross and square during instructions
-                self.fixation_cross.opacity = 0
-                self.white_square.opacity = 0
-                
-                # Show instruction on background image
-                self.background_image.opacity = 1
-                self.background_image.source = os.path.join(os.path.dirname(__file__), "instructionsDE", instr_file)
-                self.background_image.reload()
-                
-                print(f"Showing instruction {self.instruction_index + 1} of {len(self.instruction_images)}")
-            else:
-                print(f"Error: Instruction image not found: {instr_file}")
-            self.instruction_index += 1
-        else:
-            print("All instructions shown. Transitioning to trials.")
-            self.showing_instructions = False
-            # Show the fixation cross immediately after instructions end
+        # Show the randomly selected square in the bottom right corner
+        self.fixation_cross.opacity = 1
+        self.white_square.opacity = 1
+        self.white_square.pos = (Window.width - self.white_square.width, 0)
+
+        Clock.schedule_once(self.end_trial, self.int_DurationPic)
+
+    def log_trial_data(self, stim_file):
+        now = datetime.now(pytz.timezone("Europe/Berlin"))
+        self.scene_time = now.timestamp()
+        target_iti = self.ITIs[self.current_trial - 1]
+        actual_iti = self.scene_time - self.last_scene_time if self.last_scene_time is not None else 0
+        self.last_scene_time = self.scene_time
+        iti_error = actual_iti - target_iti
+        log_entry = f"{self.cross_time:.6f},{self.scene_time:.6f},{self.int_DurationPic:.6f},{target_iti:.6f},{actual_iti:.6f},{iti_error:.6f},{self.current_block},{self.current_trial},{stim_file},{self.current_square}\n"
+        self.datafilepointer.write(log_entry)
+        print(f"Logged: {log_entry.strip()}")
+
+    def end_trial(self, dt):
+        
+        self.log_trial_data("checkerboard.png")
+        self.datafilepointer.flush()
+
+        # Check if this is trial 125 (end of block)
+        if self.current_trial == 125:
+            self.datafilepointer.flush()
+            # Hide all visual elements after 600ms
             self.background_image.opacity = 0
-            self.fixation_cross.opacity = 1
-            self.white_square.opacity = 0  # Ensure square is hidden
+            self.fixation_cross.opacity = 0
+            self.white_square.opacity = 0
+            Clock.schedule_once(lambda dt: self.transition_to_next_block(), 0)
+        else:
+            self.next_trial_scheduled = False
+            self.current_trial += 1
             self.schedule_next_trial()
-
+            
     def on_key_down(self, window, key, *args):
         print(f"Key pressed: {key}")
         if self.showing_instructions:
@@ -238,50 +245,6 @@ class SimplifiedEmoScenes(App):
         
         self.cross_time = datetime.now(pytz.timezone("Europe/Berlin")).timestamp()
         Clock.schedule_once(self.show_trial, duration)
-
-    def show_trial(self, dt):
-        self.trial_start_time = time.time()
-
-        # Show the fixed checkerboard image
-        self.background_image.opacity = 1
-        self.background_image.source = os.path.join(os.path.dirname(__file__), "sprites", "checkerboard.png")
-        self.background_image.reload()
-
-        # Show the red square in the bottom right corner
-        self.fixation_cross.opacity = 1
-        self.white_square.opacity = 1
-        self.white_square.pos = (Window.width - self.white_square.width, 0)
-
-        Clock.schedule_once(self.end_trial, self.int_DurationPic)
-
-    def log_trial_data(self, stim_file):
-        now = datetime.now(pytz.timezone("Europe/Berlin"))
-        self.scene_time = now.timestamp()
-        target_iti = self.ITIs[self.current_trial - 1]
-        actual_iti = self.scene_time - self.last_scene_time if self.last_scene_time is not None else 0
-        self.last_scene_time = self.scene_time
-        iti_error = actual_iti - target_iti
-        log_entry = f"{self.cross_time:.6f},{self.scene_time:.6f},{self.int_DurationPic:.6f},{target_iti:.6f},{actual_iti:.6f},{iti_error:.6f},{self.current_block},{self.current_trial},{stim_file}\n"
-        self.datafilepointer.write(log_entry)
-        print(f"Logged: {log_entry.strip()}")
-
-    def end_trial(self, dt):
-        
-        self.log_trial_data("checkerboard.png")
-        self.datafilepointer.flush()
-
-        # Check if this is trial 125 (end of block)
-        if self.current_trial == 125:
-            self.datafilepointer.flush()
-            # Hide all visual elements after 600ms
-            self.background_image.opacity = 0
-            self.fixation_cross.opacity = 0
-            self.white_square.opacity = 0
-            Clock.schedule_once(lambda dt: self.transition_to_next_block(), 0)
-        else:
-            self.next_trial_scheduled = False
-            self.current_trial += 1
-            self.schedule_next_trial()
 
     def transition_to_next_block(self):
         self.current_block += 1
