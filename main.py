@@ -27,7 +27,7 @@ class SimplifiedEmoScenes(App):
         # Timing variables
         self.stim_on_time = None
         self.stim_off_time = None
-        self.int_DurationPic = 0.600000
+        self.stim_duration = 0.600000
         self.estimated_processing_time = 0.007000
 
         # Trial tracking
@@ -114,7 +114,7 @@ class SimplifiedEmoScenes(App):
         log_filename = os.path.join(log_dir, f"ShamScenes_{timestamp}.txt")
         try:
             self.datafilepointer = open(log_filename, "w")
-            self.datafilepointer.write("CrossTime,SceneTime,StimulusOffsetTime,PicDuration,Target_ITI,Actual_ITI,ITI_Error,Trial,Stimulus,Square\n")
+            self.datafilepointer.write("StimON,StimOFF,StimDuration,Target_ITI,Actual_ITI,ITI_Error,Trial,StimFile\n")
             print(f"Log file created: {log_filename}")
         except Exception as e:
             print(f"Error opening log file: {e}")
@@ -134,7 +134,7 @@ class SimplifiedEmoScenes(App):
         self.white_square.opacity = 1
         self.white_square.pos = (Window.width - self.white_square.width, 0)
 
-        Clock.schedule_once(self.end_trial, self.int_DurationPic)
+        Clock.schedule_once(self.end_trial, self.stim_duration)
 
     def log_trial_data(self, stim_file):
         self.stim_off_time = datetime.now(pytz.timezone("Europe/Berlin")).timestamp()
@@ -143,12 +143,12 @@ class SimplifiedEmoScenes(App):
         # Calculate actual ITI (from last stimulus offset to current stimulus onset plus stimulus duration)
         if self.last_stimulus_offset_time is not None:
             # Add stimulus duration to match the target ITI definition
-            actual_iti = (self.stim_on_time - self.last_stimulus_offset_time) + self.int_DurationPic
+            actual_iti = (self.stim_on_time - self.last_stimulus_offset_time) + self.stim_duration
         else:
             actual_iti = 0
         
         iti_error = actual_iti - target_iti
-        log_entry = f"{self.stim_on_time:.6f},{self.stim_off_time:.6f},{self.int_DurationPic:.6f},{target_iti:.6f},{actual_iti:.6f},{iti_error:.6f},{self.current_trial},{stim_file}\n"
+        log_entry = f"{self.stim_on_time:.6f},{self.stim_off_time:.6f},{self.stim_duration:.6f},{target_iti:.6f},{actual_iti:.6f},{iti_error:.6f},{self.current_trial},{stim_file}\n"
         self.datafilepointer.write(log_entry)
         print(f"Logged: {log_entry.strip()}")
         
@@ -191,7 +191,7 @@ class SimplifiedEmoScenes(App):
 
         if self.current_trial < 625:
             self.intended_iti = self.ITIs[self.current_trial]
-            fixation_duration = max(0.100000, self.intended_iti - self.int_DurationPic - self.estimated_processing_time)
+            fixation_duration = max(0.100000, self.intended_iti - self.stim_duration - self.estimated_processing_time)
             print(f"Intended ITI: {self.intended_iti:.6f} s, Adjusted fixation duration: {fixation_duration:.6f} s")
             Clock.schedule_once(lambda dt: self.show_fixation_cross(fixation_duration), 0)
             self.next_trial_scheduled = True
