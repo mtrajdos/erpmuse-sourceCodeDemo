@@ -17,48 +17,144 @@ class SimplifiedEmoScenes(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.initialize_variables()
+        self.initialize_timing_validation()
         self.setup_ui()
         self.setup_logging()
         Window.bind(on_key_down=self.on_key_down)
         Window.bind(on_resize=self.on_window_resize)
-
+        
+    def initialize_timing_validation(self):
+        self.timing_debug = True
+        self.min_allowed_iti = 1.000000
+        log_dir = os.path.join(os.getcwd(), "logs") if platform.system() == "Windows" else os.path.join("/storage/emulated/0/Download", "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        timestamp = datetime.now(pytz.timezone("Europe/Berlin")).strftime("%Y%m%d_%H%M%S")
+        self.timing_log_filename = os.path.join(log_dir, f"TimingLog_{timestamp}.txt")
+        self.timing_filepointer = open(self.timing_log_filename, "w")
+        self.timing_filepointer.write("Trial,Timestamp,Intended_ITI,Actual_ITI,Stim_Duration,Trial_Start,Stim_On,Stim_Off,Violation\n")
+        
     def initialize_variables(self):
-        print("Initializing EmoScenes")
-        # Timing variables
-        self.stim_on_time = None
-        self.stim_off_time = None
         self.stim_duration = 0.600000
-        self.estimated_processing_time = 0.007000
-
-        # Trial tracking
         self.current_trial = 1
-        self.last_trial_end_time = None
-        self.last_stimulus_offset_time = None  
-        self.trial_start_time = None
-        self.intended_iti = None
-        self.next_trial_scheduled = False
-
-        # Data structures
-        self.scene_stimuli = [f'checkerboard{brightness}.png' for brightness in [255, 225, 195, 175, 155]] * 125  # Repeat each 125 times
-        random.shuffle(self.scene_stimuli)  # Randomize the order
-        self.preloaded_images = {}
+        self.last_stim_off_time = None
+        self.current_stim_on_time = None
+        self.scene_stimuli = [f'checkerboard{brightness}.png' for brightness in [255, 225, 195, 175, 155]] * 125
+        random.shuffle(self.scene_stimuli)
         self.showing_background = True
-        self.ITIs = self.generate_random_ITIs(625)  # Generate 625 ITIs
+        self.ITIs = np.random.uniform(1.000000, 3.000000, 625)
+        self.next_trial_scheduled = False
+        self.trial_running = False
 
-        # Asset paths
-        self.fixation_path = "sprites/fixation_cross.png"
-        self.square_path = "sprites/white_square.png"
+    def validate_timing(self, trial_num):
+        if not self.timing_debug:
+            return
+            
+        current_time = time.time()
+        intended_iti = self.ITIs[trial_num - 1] if trial_num > 0 else 0
+        
+        actual_iti = 0
+        if self.last_stim_off_time and self.current_stim_on_time:
+            actual_iti = self.current_stim_on_time - self.last_stim_off_time
+            
+        stim_duration = 0
+        if hasattr(self, 'current_stim_off_time') and self.current_stim_on_time:
+            stim_duration = self.current_stim_off_time - self.current_stim_on_time
+            
+        violation = 1 if (actual_iti < self.min_allowed_iti and actual_iti > 0) else 0
+        
+        log_line = (f"{trial_num},"
+                   f"{current_time:.6f},"
+                   f"{intended_iti:.6f},"
+                   f"{actual_iti:.6f},"
+                   f"{stim_duration:.6f},"
+                   f"{self.trial_start_time if hasattr(self, 'trial_start_time') else 0:.6f},"
+                   f"{self.current_stim_on_time if self.current_stim_on_time else 0:.6f},"
+                   f"{self.current_stim_off_time if hasattr(self, 'current_stim_off_time') else 0:.6f},"
+                   f"{violation}\n")
+        
+        self.timing_filepointer.write(log_line)
+        self.timing_filepointer.flush()
+        
+        if violation:
+            Logger.warning(f'Timing violation in trial {trial_num}: ITI = {actual_iti:.6f}s')
+
+    def start_experiment(self):
+        """Initial experiment start after first keypress"""
+        self.showing_background = False
+        self.fixation_cross.opacity = 1
+        # Show fixation for first ITI duration before first trial
+        Clock.schedule_once(self.show_trial, self.ITIs[0])
+
+    def show_trial(self, dt):
+        if self.trial_running:
+            return
+            
+        self.trial_running = True
+        self.trial_start_time = time.time()
+        self.current_stim_on_time = time.time()
+        
+        # Show stimulus with fixation cross
+        self.background_image.opacity = 1
+        self.background_image.source = os.path.join(os.path.dirname(__file__), "sprites", self.scene_stimuli[self.current_trial - 1])
+        self.background_image.reload()
+        self.white_square.opacity = 1
+        self.white_square.pos = (Window.width - self.white_square.width, 0)
+        
+        Clock.schedule_once(self.end_trial, self.stim_duration)
+
+    def log_trial_data(self):
+        now = datetime.now(pytz.timezone("Europe/Berlin"))
+        stim_on = self.current_stim_on_time
+        stim_off = self.current_stim_off_time
+        target_iti = self.ITIs[self.current_trial - 1]
+        
+        actual_iti = 0
+        if self.last_stim_off_time:
+            actual_iti = stim_on - self.last_stim_off_time
+        
+        iti_error = actual_iti - target_iti
+        stim_file = self.scene_stimuli[self.current_trial - 1]
+        
+        log_entry = (f"{stim_on:.6f},"
+                    f"{stim_off:.6f},"
+                    f"{self.stim_duration:.6f},"
+                    f"{target_iti:.6f},"
+                    f"{actual_iti:.6f},"
+                    f"{iti_error:.6f},"
+                    f"{self.current_trial},"
+                    f"{stim_file}\n")
+                    
+        self.datafilepointer.write(log_entry)
+        self.datafilepointer.flush()
+
+    def end_trial(self, dt):
+        self.current_stim_off_time = time.time()
+        self.validate_timing(self.current_trial)
+        self.log_trial_data()  # Log in original format
+        
+        self.background_image.opacity = 0
+        self.white_square.opacity = 0
+        
+        self.last_stim_off_time = self.current_stim_off_time
+        self.trial_running = False
+        
+        if self.current_trial == len(self.scene_stimuli):
+            self.fixation_cross.opacity = 0
+            Clock.schedule_once(lambda dt: self.end_experiment(), 0)
+        else:
+            self.current_trial += 1
+            Clock.schedule_once(self.show_trial, self.ITIs[self.current_trial - 1])
+
+    def on_key_down(self, window, key, *args):
+        if self.showing_background:
+            self.start_experiment()
 
     def setup_ui(self):
-        # Create main layout
         self.layout = FloatLayout()
-
-        # Set up grey background
         with self.layout.canvas.before:
             Color(119/255, 119/255, 119/255)
-            self.rect = Rectangle(size=self.layout.size, pos=self.layout.pos)
+            self.rect = Rectangle(size=Window.size, pos=(0, 0))
 
-        # Create background image
         self.background_image = KivyImage(
             size_hint=(1, 1),
             pos_hint={'center_x': 0.5, 'center_y': 0.5},
@@ -67,9 +163,8 @@ class SimplifiedEmoScenes(App):
             opacity=0
         )
 
-        # Create fixation cross
         self.fixation_cross = KivyImage(
-            source=self.fixation_path,
+            source="sprites/fixation_cross.png",
             size_hint=(None, None),
             size=(Window.width * 0.05, Window.height * 0.05),
             pos_hint={'center_x': 0.5, 'center_y': 0.5},
@@ -79,7 +174,7 @@ class SimplifiedEmoScenes(App):
         )
 
         self.white_square = KivyImage(
-            source=self.square_path,
+            source="sprites/white_square.png",
             size_hint=(None, None),
             size=(55, 55),
             pos=(Window.width - 55, 0),
@@ -88,162 +183,33 @@ class SimplifiedEmoScenes(App):
             opacity=0
         )
 
-        # Add widgets in correct order (background first, overlays last)
-        self.layout.add_widget(self.background_image)    # Bottom layer
-        self.layout.add_widget(self.white_square)        # Middle layer
-        self.layout.add_widget(self.fixation_cross)      # Top layer
-        
-    def preload_images(self):
-        for brightness in [255, 225, 195, 175, 155]:
-            image_name = f'checkerboard{brightness}.png'
-            self.preloaded_images[image_name] = KivyImage(
-                source=os.path.join('sprites', image_name),
-                allow_stretch=True,
-                keep_ratio=False
-            )
-
-    def generate_random_ITIs(self, num_ITIs):
-        print(f"Generating {num_ITIs} random ITIs")
-        return np.random.uniform(1.000000, 3.000000, num_ITIs)
+        self.layout.add_widget(self.background_image)
+        self.layout.add_widget(self.white_square)
+        self.layout.add_widget(self.fixation_cross)
 
     def setup_logging(self):
-        print("Setting up logging")
         log_dir = os.path.join(os.getcwd(), "logs") if platform.system() == "Windows" else os.path.join("/storage/emulated/0/Download", "logs")
         os.makedirs(log_dir, exist_ok=True)
         timestamp = datetime.now(pytz.timezone("Europe/Berlin")).strftime("%Y%m%d_%H%M%S")
         log_filename = os.path.join(log_dir, f"ShamScenes_{timestamp}.txt")
-        try:
-            self.datafilepointer = open(log_filename, "w")
-            self.datafilepointer.write("StimON,StimOFF,StimDuration,Target_ITI,Actual_ITI,ITI_Error,Trial,StimFile\n")
-            print(f"Log file created: {log_filename}")
-        except Exception as e:
-            print(f"Error opening log file: {e}")
-
-    def show_trial(self, dt):
-        self.trial_start_time = time.time()
-        now = datetime.now(pytz.timezone("Europe/Berlin"))
-        self.stim_on_time = now.timestamp()
-
-        # Show the checkerboard image for this trial
-        self.background_image.opacity = 1
-        self.background_image.source = os.path.join(os.path.dirname(__file__), "sprites", self.scene_stimuli[self.current_trial])
-        self.background_image.reload()
-
-        # Show fixation cross and square
-        self.fixation_cross.opacity = 1
-        self.white_square.opacity = 1
-        self.white_square.pos = (Window.width - self.white_square.width, 0)
-
-        Clock.schedule_once(self.end_trial, self.stim_duration)
-
-    def log_trial_data(self, stim_file):
-        self.stim_off_time = datetime.now(pytz.timezone("Europe/Berlin")).timestamp()
-        target_iti = self.ITIs[self.current_trial - 1]
-        
-        # Calculate actual ITI (from last stimulus offset to current stimulus onset plus stimulus duration)
-        if self.last_stimulus_offset_time is not None:
-            # Add stimulus duration to match the target ITI definition
-            actual_iti = (self.stim_on_time - self.last_stimulus_offset_time) + self.stim_duration
-        else:
-            actual_iti = 0
-        
-        iti_error = actual_iti - target_iti
-        log_entry = f"{self.stim_on_time:.6f},{self.stim_off_time:.6f},{self.stim_duration:.6f},{target_iti:.6f},{actual_iti:.6f},{iti_error:.6f},{self.current_trial},{stim_file}\n"
-        self.datafilepointer.write(log_entry)
-        print(f"Logged: {log_entry.strip()}")
-        
-        # Store the stimulus offset time for next trial's ITI calculation
-        self.last_stimulus_offset_time = self.stim_off_time
-
-    def end_trial(self, dt):
-        self.log_trial_data(self.scene_stimuli[self.current_trial - 1])  # Subtract 1 for 0-based array indexing
-        self.datafilepointer.flush()
-
-        if self.current_trial == 624:  # Since we start at 1, this is trial 624
-            self.next_trial_scheduled = False
-            self.current_trial += 1
-            self.schedule_next_trial()
-        elif self.current_trial == 625:  # Last trial
-            self.log_trial_data(self.scene_stimuli[self.current_trial - 1])  # Subtract 1 for array index
-            self.datafilepointer.flush()
-            self.background_image.opacity = 0
-            self.fixation_cross.opacity = 0
-            self.white_square.opacity = 0
-            Clock.schedule_once(lambda dt: self.end_experiment(), 0)
-        else:
-            self.next_trial_scheduled = False
-            self.current_trial += 1
-            self.schedule_next_trial()
-            
-    def on_key_down(self, window, key, *args):
-        print(f"Key pressed: {key}")
-        if self.showing_background:
-            self.showing_background = False
-            self.schedule_next_trial()
-        elif not self.next_trial_scheduled:
-            self.schedule_next_trial()
-
-    def schedule_next_trial(self, dt=None):
-        if self.next_trial_scheduled:
-            return
-
-        print(f"Scheduling trial {self.current_trial}")
-
-        if self.current_trial <= 625:  # Changed < to <= since we start at 1
-            self.intended_iti = self.ITIs[self.current_trial - 1]  # Subtract 1 for 0-based array indexing
-            fixation_duration = max(0.100000, self.intended_iti - self.stim_duration - self.estimated_processing_time)
-            print(f"Intended ITI: {self.intended_iti:.6f} s, Adjusted fixation duration: {fixation_duration:.6f} s")
-            Clock.schedule_once(lambda dt: self.show_fixation_cross(fixation_duration), 0)
-            self.next_trial_scheduled = True
-        else:
-            print("Error: Ran out of stimuli")
-            self.end_experiment()
-
-    def show_fixation_cross(self, duration):
-        print(f"Showing fixation cross for {duration:.6f} seconds")
-        # Ensure grey background
-        with self.layout.canvas.before:
-            Color(119 / 255, 119 / 255, 119 / 255)
-            self.rect = Rectangle(size=self.layout.size, pos=self.layout.pos)
-        
-        # Show fixation cross, hide square
-        self.fixation_cross.opacity = 1
-        self.white_square.opacity = 0
-        self.fixation_cross.size = (Window.width * 0.05, Window.height * 0.05)
-        
-        # Hide background image but maintain grey background
-        self.background_image.opacity = 0
-        
-        Clock.schedule_once(self.show_trial, duration)
-
-    def transition_to_next_block(self):
-        self.current_block += 1
-        if self.current_block < 4:
-            print(f"Transitioning to block {self.current_block}")
-            self.current_trial = 0
-            self.show_instructions()
-        else:
-            self.end_experiment()
+        self.datafilepointer = open(log_filename, "w")
+        self.datafilepointer.write("StimON,StimOFF,StimDuration,Target_ITI,Actual_ITI,ITI_Error,Trial,StimFile\n")
 
     def end_experiment(self):
-        print("Ending experiment")
-        if self.datafilepointer:
+        if hasattr(self, 'datafilepointer'):
             self.datafilepointer.close()
+        if hasattr(self, 'timing_filepointer'):
+            self.timing_filepointer.close()
         self.stop()
-        print("Experiment finished. Goodbye!")
-        
+
     def on_start(self):
-        print("Application starting")
         Window.fullscreen = "auto"
-        # Show just the grey background initially
         self.background_image.opacity = 0
         self.fixation_cross.opacity = 0
         self.white_square.opacity = 0
 
-    def on_stop(self):
-        print("Stopping application")
-
     def on_window_resize(self, window, width, height):
+        self.rect.size = (width, height)
         self.fixation_cross.size = (width * 0.05, height * 0.05)
         self.background_image.size = (width, height)
         self.white_square.pos = (width - self.white_square.width, 0)
