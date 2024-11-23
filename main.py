@@ -36,7 +36,7 @@ class SimplifiedEmoScenes(App):
         self.scene_stimuli = [f'checkerboard{brightness}.png' for brightness in [255, 225, 195, 175, 155]] * 125
         random.shuffle(self.scene_stimuli)
         self.showing_background = True
-        self.ITIs = np.random.uniform(2.000000, 4.000000, 625)
+        self.ITIs = np.random.uniform(1.000000, 3.000000, 625)
         self.next_trial_scheduled = False
         self.trial_running = False
 
