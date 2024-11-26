@@ -28,15 +28,25 @@ class SimplifiedEmoScenes(App):
         self.setup_logging()
         Window.bind(on_resize=self.on_window_resize)
         
+    def create_block(self):
+        """Create a single block of 120 trials with 40 of each brightness"""
+        block = ['checkerboard255.png'] * 40 + ['checkerboard225.png'] * 40 + ['checkerboard195.png'] * 40
+        random.shuffle(block)
+        return block
+        
     def initialize_variables(self):
         self.stim_duration = 0.600000
         self.current_trial = 1
         self.last_stim_off_time = None
         self.current_stim_on_time = None
-        self.scene_stimuli = [f'checkerboard{brightness}.png' for brightness in [255, 225, 195, 175, 155]] * 125
-        random.shuffle(self.scene_stimuli)
+        
+        # Create three blocks of 120 trials each
+        self.scene_stimuli = []
+        for _ in range(3):
+            self.scene_stimuli.extend(self.create_block())
+            
         self.showing_background = True
-        self.ITIs = np.random.uniform(1.000000, 3.000000, 625)
+        self.ITIs = np.random.uniform(1.000000, 3.000000, len(self.scene_stimuli))
         self.next_trial_scheduled = False
         self.trial_running = False
 
