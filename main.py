@@ -12,6 +12,7 @@ from datetime import datetime
 import pytz
 import platform
 import time
+import logging
 
 class TouchableFloatLayout(FloatLayout):
     def on_touch_down(self, touch):
@@ -170,12 +171,43 @@ class SimplifiedEmoScenes(App):
         self.layout.add_widget(self.fixation_cross)
 
     def setup_logging(self):
-        log_dir = os.path.join(os.getcwd(), "logs") if platform.system() == "Windows" else os.path.join("/storage/emulated/0/Download", "logs")
-        os.makedirs(log_dir, exist_ok=True)
-        timestamp = datetime.now(pytz.timezone("Europe/Berlin")).strftime("%Y%m%d_%H%M%S")
-        log_filename = os.path.join(log_dir, f"ShamScenes_{timestamp}.txt")
-        self.datafilepointer = open(log_filename, "w")
-        self.datafilepointer.write("Timestamp,Trial,StimFile,StimON,StimOFF,Stim_Duration,Target_ITI,Actual_ITI,ITI_Error\n")
+        # Set up debug logging first
+        logging.basicConfig(level=logging.DEBUG)
+        logger = logging.getLogger('SimplifiedEmoScenes')
+        
+        if platform.system() == "Windows":
+            log_dir = os.path.join(os.getcwd(), "logs")
+            logger.debug(f"Running on Windows, using directory: {log_dir}")
+        else:
+            try:
+                logger.debug("Attempting to use Android storage")
+                import android.storage # type: ignore (import only on mobile device)
+                log_dir = os.path.join(android.storage.app_storage_path(), "logs")
+                logger.info(f"Using private storage path: {log_dir}")
+            except ImportError:
+                logger.debug("Android storage import failed, using fallback path")
+                log_dir = os.path.join("/storage/emulated/0/Download", "logs")
+                logger.info(f"Falling back to Download folder: {log_dir}")
+        
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            logger.debug(f"Created log directory at: {log_dir}")
+            
+            timestamp = datetime.now(pytz.timezone("Europe/Berlin")).strftime("%Y%m%d_%H%M%S")
+            log_filename = os.path.join(log_dir, f"ShamScenes_{timestamp}.txt")
+            logger.debug(f"Attempting to create log file: {log_filename}")
+            
+            self.datafilepointer = open(log_filename, "w")
+            self.datafilepointer.write("Timestamp,Trial,StimFile,StimON,StimOFF,Stim_Duration,Target_ITI,Actual_ITI,ITI_Error\n")
+            logger.info(f"Successfully created and initialized log file at {log_filename}")
+            
+            # Test writing
+            logger.debug("Testing file write access...")
+            self.datafilepointer.flush()
+            logger.debug("File write test successful")
+            
+        except Exception as e:
+            logger.error(f"Error in setup_logging: {str(e)}", exc_info=True)
 
     def end_experiment(self):
         if hasattr(self, 'datafilepointer'):
