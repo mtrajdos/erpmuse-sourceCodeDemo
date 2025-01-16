@@ -6,7 +6,7 @@
 [app]
 
 target = android
-android.permissions = INTERNET, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE, FOREGROUND_SERVICE
+android.permissions = INTERNET, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE, ACCESS_FINE_LOCATION, FOREGROUND_SERVICE, VIBRATE, WAKE_LOCK
 android.enable_androidx = True
 android.use_androidx = True
 android.wakelock = True
@@ -18,10 +18,10 @@ icon.filename = ./sprites/checkerboard255.png
 title = #
 
 # (str) Package name
-package.name = ShamScenes
+package.name = SS
 
 # (str) Package domain (needed for android/ios packaging)
-package.domain = org.shamscenes
+package.domain = org.SS
 
 # (str) Source code where the main.py live
 source.dir = .
@@ -43,7 +43,7 @@ source.include_exts = pyc,py,png,jpg,txt,csv,kv,atlas,json
 #source.exclude_patterns = license,images/*/*.jpg
 
 # (str) Application versioning (method 1)
-version = 2.5
+version = 3.0
 
 # (str) Application versioning (method 2)
 # version.regex = __version__ = ['"](.*)['"]
