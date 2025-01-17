@@ -1,3 +1,7 @@
+from kivy.config import Config
+Config.set('graphics', 'fullscreen', 'auto')
+Config.write()
+
 from kivy.app import App
 from kivy.uix.image import Image as KivyImage
 from kivy.uix.floatlayout import FloatLayout
@@ -171,8 +175,6 @@ class OSCManager:
             self.server_thread.join(timeout=1.0)
             self.server_thread = None
 
-
-
 class SimplifiedShamApp(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -220,35 +222,6 @@ class SimplifiedShamApp(App):
             
         Logger.info(f"Created block with {len(shuffled_block)} trials")
         return shuffled_block
-        
-    def initialize_variables(self):
-        self.stim_duration = 0.600000
-        self.current_trial = 1
-        self.last_stim_off_time = None
-        self.current_stim_on_time = None
-        
-        # Create three blocks of 120 trials each
-        self.scene_stimuli = []
-        for block in range(3):
-            block_stimuli = self.create_block()
-            self.scene_stimuli.extend(block_stimuli)
-            
-            # Validate pairs in each block
-            for i in range(0, len(block_stimuli), 2):
-                stim1 = block_stimuli[i].replace('.png', '')
-                stim2 = block_stimuli[i + 1].replace('.png', '')
-                if ('inverted' in stim1 and 'inverted' not in stim2) or \
-                   ('inverted' not in stim1 and 'inverted' in stim2):
-                    base1 = stim1.replace('_inverted', '')
-                    base2 = stim2.replace('_inverted', '')
-                    if base1 != base2:
-                        Logger.warning(f"Mismatched pair in block {block + 1}: {stim1} - {stim2}")
-            
-        Logger.info(f"Created experiment with {len(self.scene_stimuli)} total trials")
-        self.showing_background = True
-        self.ITIs = np.random.uniform(1.000000, 3.000000, len(self.scene_stimuli))
-        self.next_trial_scheduled = False
-        self.trial_running = False
         
     def initialize_variables(self):
         self.stim_duration = 0.600000
@@ -387,6 +360,11 @@ class SimplifiedShamApp(App):
         else:
             self.current_trial += 1
             Clock.schedule_once(self.show_trial, self.ITIs[self.current_trial - 1])
+
+    def log_trial_data(self):
+        now = time.time()
+        stim_on = self.current_stim_on_time
+        stim_off = self.current_stim_off
 
     def log_trial_data(self):
         now = time.time()
