@@ -206,6 +206,9 @@ class SimplifiedShamApp(App):
         # Start OSC components
         self.start_osc_components()
         
+        #100000 trials with 120 stimuli each
+        self.block_number = 100000
+        
     def create_block(self):
         """Create a single block of 120 trials (60 pairs) with alternating regular and inverted patterns"""
         # Create base stimuli pairs maintaining strict alternation
@@ -241,9 +244,8 @@ class SimplifiedShamApp(App):
         self.last_stim_off_time = None
         self.current_stim_on_time = None
         
-        # Create 10 blocks of 12000 trials each
         self.scene_stimuli = []
-        for block in range(1000):
+        for block in range(self.block_number):
             block_stimuli = self.create_block()
             self.scene_stimuli.extend(block_stimuli)
             
