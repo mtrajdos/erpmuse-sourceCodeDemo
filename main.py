@@ -1,6 +1,18 @@
 from kivy.config import Config
 Config.set('graphics', 'fullscreen', 'auto')
+Config.set('kivy', 'exit_on_escape', '0')
+Config.set('kivy', 'pause_on_minimize', '0')  # Prevent app from being killed when minimized
 Config.write()
+
+from kivy.core.window import Window
+Window.borderless = True
+Window.keep_screen_on = True  # Keep screen from turning off
+
+# Add these lines
+from kivy.utils import platform
+if platform == 'android':
+    from pythonforandroid import acquire_wake_lock, release_wake_lock
+    acquire_wake_lock('PARTIAL_WAKE_LOCK', 'ShamScenes::WakeLock')
 
 from kivy.app import App
 from kivy.uix.image import Image as KivyImage
@@ -229,9 +241,9 @@ class SimplifiedShamApp(App):
         self.last_stim_off_time = None
         self.current_stim_on_time = None
         
-        # Create three blocks of 120 trials each
+        # Create 10 blocks of 12000 trials each
         self.scene_stimuli = []
-        for block in range(3):
+        for block in range(1000):
             block_stimuli = self.create_block()
             self.scene_stimuli.extend(block_stimuli)
             
@@ -248,7 +260,7 @@ class SimplifiedShamApp(App):
             
         Logger.info(f"Created experiment with {len(self.scene_stimuli)} total trials")
         self.showing_background = True
-        self.ITIs = np.random.uniform(1.000000, 3.000000, len(self.scene_stimuli))
+        self.ITIs = np.random.uniform(1.005000, 3.005000, len(self.scene_stimuli))
         self.next_trial_scheduled = False
         self.trial_running = False
         
@@ -432,10 +444,10 @@ class SimplifiedShamApp(App):
         self.white_square = KivyImage(
             source="sprites/white_square.png",
             size_hint=(None, None),
-            size=(55, 55),
-            pos=(Window.width - 55, 0),
-            allow_stretch=False,
-            keep_ratio=True,
+            size=(110, 110),
+            pos=(Window.width - 110, Window.height - 110),  # Position from top-right
+            allow_stretch=True,
+            keep_ratio=False,
             opacity=0
         )
 
@@ -472,6 +484,8 @@ class SimplifiedShamApp(App):
 
     def end_experiment(self):
         Logger.info("Experiment ending")
+        if platform == 'android':
+            release_wake_lock()
         if hasattr(self, 'simulator'):
             self.simulator.stop()
         if hasattr(self, 'osc_manager'):
@@ -490,8 +504,8 @@ class SimplifiedShamApp(App):
         self.rect.size = (width, height)
         self.fixation_cross.size = (width * 0.05, height * 0.05)
         self.background_image.size = (width, height)
-        self.white_square.pos = (width - self.white_square.width, 0)  # Maintain corner position
-
+        
+        self.white_square.pos = (width - 110, height - 110)  # Maintain exact corner position
     def build(self):
         return self.layout
 
