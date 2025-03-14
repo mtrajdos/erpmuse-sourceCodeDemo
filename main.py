@@ -1,6 +1,4 @@
 from kivy.config import Config
-Config.set('graphics', 'maxfps', '120')
-Config.set('graphics', 'minfps', '120')
 Config.set('graphics', 'fullscreen', 'auto')
 Config.write()
 
