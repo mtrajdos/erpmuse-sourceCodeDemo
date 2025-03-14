@@ -30,8 +30,6 @@ class TouchableFloatLayout(FloatLayout):
 class EmoScenes(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.refresh_rate = self.get_refresh_rate()
-        Logger.info(f'Using refresh rate: {self.refresh_rate}Hz')
         
         self.initialize_variables()
         self.setup_ui()
@@ -39,22 +37,13 @@ class EmoScenes(App):
         Window.bind(on_resize=self.on_window_resize)
         self.paused = False
 
-    def get_refresh_rate(self):
-        try:
-            if platform.system() == 'Linux' or platform.system() == 'Darwin':
-                if hasattr(Window, 'refresh_rate') and Window.refresh_rate > 0:
-                    return float(Window.refresh_rate)
-            return 60.0
-        except Exception as e:
-            return 60.0
-
     def initialize_variables(self):
         self.stim_duration = 0.600000
         self.current_trial = 1
         self.last_stim_off_time = None
         self.current_stim_on_time = None
         self.showing_background = True
-        self.ITIs = np.random.uniform(1.005000, 3.005000, 50000)
+        self.ITIs = np.random.uniform(1.000000, 3.000000, 50000)
         self.next_trial_scheduled = False
         self.trial_running = False
         self.showing_instructions = True
@@ -119,7 +108,6 @@ class EmoScenes(App):
             f"# Experiment Info:\n"
             f"# POSIX_Start: {experiment_start_time:.6f}\n"
             f"# System_Time: {timestamp}\n"
-            f"# Display_Hz: {self.refresh_rate}\n"
             f"# ITI_Range: {np.min(self.ITIs):.6f} - {np.max(self.ITIs):.6f}\n"
             f"# Images_N: {len(self.preloaded_images)}\n"
             f"# Log_Path: {log_filename}\n"
