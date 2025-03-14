@@ -1,0 +1,324 @@
+from kivy.config import Config
+Config.set('graphics', 'maxfps', '120')
+Config.set('graphics', 'minfps', '120')
+Config.set('graphics', 'fullscreen', 'auto')
+Config.write()
+
+from kivy.core.window import Window
+Window.borderless = True
+
+from kivy.app import App
+from kivy.uix.image import Image as KivyImage
+from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.boxlayout import BoxLayout
+from kivy.clock import Clock
+from kivy.graphics import Color, Rectangle
+from kivy.logger import Logger
+import numpy as np
+import os
+from datetime import datetime
+import pytz
+import platform
+import time
+import random
+
+class TouchableFloatLayout(FloatLayout):
+    def on_touch_down(self, touch):
+        app = App.get_running_app()
+        if app:
+            app.handle_touch()
+        return super().on_touch_down(touch)
+
+class EmoScenes(App):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.refresh_rate = self.get_refresh_rate()
+        Logger.info(f'Using refresh rate: {self.refresh_rate}Hz')
+        
+        self.initialize_variables()
+        self.setup_ui()
+        self.setup_logging()
+        Window.bind(on_resize=self.on_window_resize)
+        self.paused = False
+
+    def get_refresh_rate(self):
+        try:
+            if platform.system() == 'Linux' or platform.system() == 'Darwin':
+                if hasattr(Window, 'refresh_rate') and Window.refresh_rate > 0:
+                    return float(Window.refresh_rate)
+            return 60.0
+        except Exception as e:
+            return 60.0
+
+    def initialize_variables(self):
+        self.stim_duration = 0.600000
+        self.current_trial = 1
+        self.last_stim_off_time = None
+        self.current_stim_on_time = None
+        self.showing_background = True
+        self.ITIs = np.random.uniform(1.005000, 3.005000, 50000)
+        self.next_trial_scheduled = False
+        self.trial_running = False
+        self.showing_instructions = True
+        self.categories = ['highneg', 'lowneg', 'neutral', 'lowpos', 'highpos']
+        self.stimuli_per_category = 25
+        self.load_and_randomize_stimuli()
+        self.preload_images()
+
+    def setup_ui(self):
+        """Setup stable UI with touch support"""
+        self.layout = TouchableFloatLayout()
+
+        # Core background from v2.2
+        with self.layout.canvas.before:
+            Color(119/255, 119/255, 119/255)
+            self.rect = Rectangle(size=Window.size, pos=(0, 0))
+
+        self.background_image = KivyImage(
+            size_hint=(1, 1),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5},
+            allow_stretch=True,
+            keep_ratio=False,
+            opacity=0
+        )
+
+        self.fixation_cross = KivyImage(
+            source="sprites/fixation_cross.png",
+            size_hint=(None, None),
+            size=(Window.width * 0.05, Window.height * 0.05),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5},
+            allow_stretch=False,
+            keep_ratio=True,
+            opacity=0
+        )
+
+        self.white_square = KivyImage(
+            source="sprites/white_square.png",
+            size_hint=(None, None),
+            size=(110, 110),
+            pos=(Window.width - 110, 0),
+            allow_stretch=False,
+            keep_ratio=True,
+            opacity=0
+        )
+
+        # Add widgets in stable order
+        self.layout.add_widget(self.background_image)
+        self.layout.add_widget(self.white_square)
+        self.layout.add_widget(self.fixation_cross)
+
+    def setup_logging(self):
+        """Enhanced logging setup"""
+        log_dir = os.path.join(os.getcwd(), "logs") if platform.system() == "Windows" else os.path.join("/storage/emulated/0/Download", "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        timestamp = datetime.now(pytz.timezone("Europe/Berlin")).strftime("%Y%m%d_%H%M%S")
+        log_filename = os.path.join(log_dir, f"EmoScenes_{timestamp}.txt")
+        self.datafilepointer = open(log_filename, "w")
+        
+        experiment_start_time = time.time()
+        
+        header = (
+            f"# Experiment Info:\n"
+            f"# POSIX_Start: {experiment_start_time:.6f}\n"
+            f"# System_Time: {timestamp}\n"
+            f"# Display_Hz: {self.refresh_rate}\n"
+            f"# ITI_Range: {np.min(self.ITIs):.6f} - {np.max(self.ITIs):.6f}\n"
+            f"# Images_N: {len(self.preloaded_images)}\n"
+            f"# Log_Path: {log_filename}\n"
+            f"#\n"
+            f"# Format for break lines:\n"
+            f"# BREAK,<POSIX_time>,<reason>,<details>\n"
+            f"#\n"
+        )
+        self.datafilepointer.write(header)
+        self.datafilepointer.write("Timestamp,BlockTrial,StimFile,StimON,StimOFF,Stim_Duration,Target_ITI,Actual_ITI,ITI_Error\n")
+        self.datafilepointer.flush()
+        
+        self.experiment_start_time = experiment_start_time
+
+    def load_and_randomize_stimuli(self):
+        """Stable stimuli loading from v2.2 with categories"""
+        stimuli_folder = os.path.join(os.path.dirname(__file__), "stimuli")
+        self.scene_stimuli = []
+        
+        category_stimuli = {cat: [] for cat in self.categories}
+        
+        all_files = os.listdir(stimuli_folder)
+        for file in all_files:
+            if file.endswith('.jpg'):
+                for category in self.categories:
+                    if category in file.lower():
+                        category_stimuli[category].append(file)
+                        break
+        
+        block_stimuli = []
+        for category in self.categories:
+            if len(category_stimuli[category]) >= self.stimuli_per_category:
+                selected = random.sample(category_stimuli[category], self.stimuli_per_category)
+                block_stimuli.extend(selected)
+        
+        random.shuffle(block_stimuli)
+        self.scene_stimuli = block_stimuli * 1000
+
+    def preload_images(self):
+        """Stable image preloading"""
+        self.preloaded_images = {}
+        
+        instruction_path = os.path.join(os.path.dirname(__file__), "instructionsDE", "Instruktion1.jpg")
+        if os.path.exists(instruction_path):
+            self.preloaded_images["instruction1"] = KivyImage(
+                source=instruction_path,
+                allow_stretch=True,
+                keep_ratio=False
+            )
+        
+        for stim_file in set(self.scene_stimuli):
+            image_path = os.path.join(os.path.dirname(__file__), "stimuli", stim_file)
+            if os.path.exists(image_path):
+                self.preloaded_images[stim_file] = KivyImage(
+                    source=image_path,
+                    allow_stretch=True,
+                    keep_ratio=False
+                )
+
+    def handle_touch(self):
+        """Touch-based flow control"""
+        if self.showing_instructions:
+            self.show_next_instruction()
+        elif self.showing_background:
+            self.start_experiment()
+        elif not self.showing_background:
+            self.end_experiment()
+
+    def show_trial(self, dt):
+        """Stable trial display with enhanced timing"""
+        if self.trial_running:
+            return
+                
+        intended_start = time.time()
+        self.trial_running = True
+
+        current_stim = self.scene_stimuli[self.current_trial - 1]
+        if current_stim in self.preloaded_images:
+            self.background_image.texture = self.preloaded_images[current_stim].texture
+        else:
+            Logger.error(f"Image not preloaded: {current_stim}")
+            return
+
+        prep_overhead = time.time() - intended_start
+        
+        def show_stimulus(dt):
+            self.background_image.opacity = 1
+            self.white_square.opacity = 1
+            self.white_square.pos = (Window.width - self.white_square.width, 0)
+            self.current_stim_on_time = time.time()
+            adjusted_duration = max(0, self.stim_duration - prep_overhead)
+            Clock.schedule_once(self.end_trial, adjusted_duration)
+        
+        Clock.schedule_once(show_stimulus, 0)
+
+    def end_trial(self, dt):
+        """Stable trial ending with enhanced logging"""
+        self.current_stim_off_time = time.time()
+        self.log_trial_data()
+        
+        self.background_image.opacity = 0
+        self.white_square.opacity = 0
+        
+        self.last_stim_off_time = self.current_stim_off_time
+        self.trial_running = False
+        
+        if self.current_trial == len(self.scene_stimuli):
+            self.fixation_cross.opacity = 0
+            Clock.schedule_once(lambda dt: self.end_experiment(), 0)
+        else:
+            next_iti = self.ITIs[self.current_trial]
+            if self.last_stim_off_time and self.current_stim_on_time:
+                actual_duration = self.current_stim_off_time - self.current_stim_on_time
+                duration_drift = actual_duration - self.stim_duration
+                adjusted_iti = max(1.000000, next_iti - duration_drift)
+            else:
+                adjusted_iti = next_iti
+                
+            self.current_trial += 1
+            Clock.schedule_once(self.show_trial, adjusted_iti)
+
+    def on_window_resize(self, window, width, height):
+        """Stable window resizing"""
+        self.rect.size = (width, height)
+        self.fixation_cross.size = (width * 0.05, height * 0.05)
+        self.background_image.size = (width, height)
+        self.white_square.pos = (width - self.white_square.width, 0)
+
+    def build(self):
+        return self.layout
+    
+    def show_instructions(self):
+        self.showing_instructions = True
+        self.background_image.opacity = 1
+        if "instruction1" in self.preloaded_images:
+            self.background_image.texture = self.preloaded_images["instruction1"].texture
+        else:
+            self.background_image.source = os.path.join(os.path.dirname(__file__), "instructionsDE", "Instruktion1.jpg")
+            self.background_image.reload()
+
+    def show_next_instruction(self):
+        self.showing_instructions = False
+        self.background_image.opacity = 0
+        self.fixation_cross.opacity = 0
+        self.start_experiment()
+
+    def start_experiment(self):
+        """Initial experiment start after first touch"""
+        self.showing_background = False
+        self.fixation_cross.opacity = 1
+        Clock.schedule_once(self.show_trial, self.ITIs[0])
+        Logger.info(f"Experiment started, first ITI: {self.ITIs[0]:.6f}")
+
+    def log_trial_data(self):
+        now = time.time()
+        stim_on = self.current_stim_on_time
+        stim_off = self.current_stim_off_time
+        target_iti = self.ITIs[self.current_trial - 1]
+        
+        actual_iti = 0
+        if self.last_stim_off_time:
+            actual_iti = stim_on - self.last_stim_off_time
+        
+        iti_error = actual_iti - target_iti
+        stim_file = self.scene_stimuli[self.current_trial - 1]
+        actual_stim_duration = stim_off - stim_on
+        
+        block_trial = f"t{self.current_trial:03d}"
+        
+        log_entry = (f"{now:.6f},"               # Timestamp
+                    f"{block_trial},"            # Trial
+                    f"{stim_file},"              # StimFile
+                    f"{stim_on:.6f},"            # StimON
+                    f"{stim_off:.6f},"           # StimOFF
+                    f"{actual_stim_duration:.6f}," # Stim_Duration
+                    f"{target_iti:.6f},"         # Target_ITI
+                    f"{actual_iti:.6f},"         # Actual_ITI
+                    f"{iti_error:.6f}\n")        # ITI_Error
+                    
+        self.datafilepointer.write(log_entry)
+        self.datafilepointer.flush()
+
+    def end_experiment(self):
+        Logger.info("Experiment ending")
+        if hasattr(self, 'datafilepointer'):
+            self.datafilepointer.close()
+        self.stop()
+
+    def on_start(self):
+        Window.fullscreen = "auto"
+        self.background_image.opacity = 0
+        self.fixation_cross.opacity = 0
+        self.white_square.opacity = 0
+        self.show_instructions()
+
+if __name__ == "__main__":
+    try:
+        EmoScenes().run()
+    except Exception as e:
+        Logger.error(f'Application Error: {str(e)}')
