@@ -38,12 +38,12 @@ class EmoScenes(App):
         self.paused = False
 
     def initialize_variables(self):
-        self.stim_duration = 0.600000
+        self.stim_duration = 0.0050000
         self.current_trial = 1
         self.last_stim_off_time = None
         self.current_stim_on_time = None
         self.showing_background = True
-        self.ITIs = np.random.uniform(1.000000, 3.000000, 50000)
+        self.ITIs = np.random.uniform(0.010000, 0.030000, 50000)
         self.next_trial_scheduled = False
         self.trial_running = False
         self.showing_instructions = True
@@ -227,6 +227,10 @@ class EmoScenes(App):
                 adjusted_iti = next_iti
                 
             self.current_trial += 1
+            
+            if self.current_trial == 125:
+                self.load_and_randomize_stimuli()
+            
             Clock.schedule_once(self.show_trial, adjusted_iti)
 
     def on_window_resize(self, window, width, height):
