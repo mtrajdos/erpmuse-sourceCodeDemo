@@ -8,7 +8,6 @@ Window.borderless = True
 from kivy.app import App
 from kivy.uix.image import Image as KivyImage
 from kivy.uix.floatlayout import FloatLayout
-from kivy.uix.boxlayout import BoxLayout
 from kivy.clock import Clock
 from kivy.graphics import Color, Rectangle
 from kivy.logger import Logger
@@ -38,18 +37,31 @@ class EmoScenes(App):
         self.paused = False
 
     def initialize_variables(self):
-        self.stim_duration = 0.600000
+        self.stim_duration = 0.006000
         self.current_trial = 1
         self.last_stim_off_time = None
         self.current_stim_on_time = None
         self.showing_background = True
-        self.ITIs = np.random.uniform(1.000000, 3.000000, 50000)
+        
+        # Lower and upper bounds of ISI range, and count of ISIs to randomize (limiting the total number of trials)
+        self.ISIs = np.random.uniform(0.100000, 0.300000, 50000)
+        
         self.next_trial_scheduled = False
         self.trial_running = False
         self.showing_instructions = True
-        self.categories = ['highneg', 'lowneg', 'neutral', 'lowpos', 'highpos']
-        self.stimuli_per_category = 25
-        self.load_and_randomize_stimuli()
+        
+        # Initialize stimuli structure
+        self.stimuli = {
+            'categories': ['highneg', 'lowneg', 'neutral', 'lowpos', 'highpos'],
+            'per_category': 25,
+            'files_per_category': {},  # Dict mapping category -> list of files
+            'sequence': [],
+            'all_files': [],
+            'folder': os.path.join(os.path.dirname(__file__), "stimuli")
+        }
+        
+        self.load_stimuli()
+        self.randomize_stimuli()
         self.preload_images()
 
     def setup_ui(self):
@@ -108,7 +120,7 @@ class EmoScenes(App):
             f"# Experiment Info:\n"
             f"# POSIX_Start: {experiment_start_time:.6f}\n"
             f"# System_Time: {timestamp}\n"
-            f"# ITI_Range: {np.min(self.ITIs):.6f} - {np.max(self.ITIs):.6f}\n"
+            f"# ITI_Range: {np.min(self.ISIs):.6f} - {np.max(self.ISIs):.6f}\n"
             f"# Images_N: {len(self.preloaded_images)}\n"
             f"# Log_Path: {log_filename}\n"
             f"#\n"
@@ -122,29 +134,61 @@ class EmoScenes(App):
         
         self.experiment_start_time = experiment_start_time
 
-    def load_and_randomize_stimuli(self):
-        """Stable stimuli loading from v2.2 with categories"""
-        stimuli_folder = os.path.join(os.path.dirname(__file__), "stimuli")
-        self.scene_stimuli = []
+    def load_stimuli(self):
+        """Load stimuli files and organize by category"""
+        # Initialize category dictionary
+        for category in self.stimuli['categories']:
+            self.stimuli['files_per_category'][category] = []
         
-        category_stimuli = {cat: [] for cat in self.categories}
+        # Check if stimuli folder exists
+        if not os.path.exists(self.stimuli['folder']):
+            Logger.error(f"Stimuli folder not found: {self.stimuli['folder']}")
+            return
         
-        all_files = os.listdir(stimuli_folder)
-        for file in all_files:
-            if file.endswith('.jpg'):
-                for category in self.categories:
-                    if category in file.lower():
-                        category_stimuli[category].append(file)
-                        break
+        # Load all jpg files
+        all_files = os.listdir(self.stimuli['folder'])
+        self.stimuli['all_files'] = [f for f in all_files if f.endswith('.jpg')]
         
+        # Categorize files
+        for file in self.stimuli['all_files']:
+            categorized = False
+            for category in self.stimuli['categories']:
+                if category in file.lower():
+                    self.stimuli['files_per_category'][category].append(file)
+                    categorized = True
+                    break
+            
+            if not categorized:
+                Logger.warning(f"File {file} could not be categorized")
+        
+        # Log loaded stimuli
+        for category in self.stimuli['categories']:
+            count = len(self.stimuli['files_per_category'][category])
+            Logger.info(f"Loaded {count} stimuli for category: {category}")
+
+    def randomize_stimuli(self):
+        """Randomize stimuli sequence from loaded files"""
         block_stimuli = []
-        for category in self.categories:
-            if len(category_stimuli[category]) >= self.stimuli_per_category:
-                selected = random.sample(category_stimuli[category], self.stimuli_per_category)
-                block_stimuli.extend(selected)
         
+        # Sample from each category
+        for category in self.stimuli['categories']:
+            available = self.stimuli['files_per_category'][category]
+            needed = self.stimuli['per_category']
+            
+            if len(available) >= needed:
+                selected = random.sample(available, needed)
+                block_stimuli.extend(selected)
+            else:
+                Logger.warning(f"Category {category} has only {len(available)} stimuli, needed {needed}")
+                block_stimuli.extend(available)
+        
+        # Shuffle the block
         random.shuffle(block_stimuli)
-        self.scene_stimuli = block_stimuli * 1000
+        
+        # Create extended sequence
+        self.stimuli['sequence'] = block_stimuli * 1000
+        
+        Logger.info(f"Created stimulus sequence with {len(block_stimuli)} unique stimuli")
 
     def preload_images(self):
         """Stable image preloading"""
@@ -158,8 +202,8 @@ class EmoScenes(App):
                 keep_ratio=False
             )
         
-        for stim_file in set(self.scene_stimuli):
-            image_path = os.path.join(os.path.dirname(__file__), "stimuli", stim_file)
+        for stim_file in set(self.stimuli['sequence']):
+            image_path = os.path.join(self.stimuli['folder'], stim_file)
             if os.path.exists(image_path):
                 self.preloaded_images[stim_file] = KivyImage(
                     source=image_path,
@@ -184,7 +228,7 @@ class EmoScenes(App):
         intended_start = time.time()
         self.trial_running = True
 
-        current_stim = self.scene_stimuli[self.current_trial - 1]
+        current_stim = self.stimuli['sequence'][self.current_trial - 1]
         if current_stim in self.preloaded_images:
             self.background_image.texture = self.preloaded_images[current_stim].texture
         else:
@@ -214,11 +258,11 @@ class EmoScenes(App):
         self.last_stim_off_time = self.current_stim_off_time
         self.trial_running = False
         
-        if self.current_trial == len(self.scene_stimuli):
+        if self.current_trial == len(self.stimuli['sequence']):
             self.fixation_cross.opacity = 0
             Clock.schedule_once(lambda dt: self.end_experiment(), 0)
         else:
-            next_iti = self.ITIs[self.current_trial]
+            next_iti = self.ISIs[self.current_trial]
             if self.last_stim_off_time and self.current_stim_on_time:
                 actual_duration = self.current_stim_off_time - self.current_stim_on_time
                 duration_drift = actual_duration - self.stim_duration
@@ -229,7 +273,7 @@ class EmoScenes(App):
             self.current_trial += 1
             
             if self.current_trial == 125:
-                self.load_and_randomize_stimuli()
+                self.randomize_stimuli()
             
             Clock.schedule_once(self.show_trial, adjusted_iti)
 
@@ -262,21 +306,21 @@ class EmoScenes(App):
         """Initial experiment start after first touch"""
         self.showing_background = False
         self.fixation_cross.opacity = 1
-        Clock.schedule_once(self.show_trial, self.ITIs[0])
-        Logger.info(f"Experiment started, first ITI: {self.ITIs[0]:.6f}")
+        Clock.schedule_once(self.show_trial, self.ISIs[0])
+        Logger.info(f"Experiment started, first ITI: {self.ISIs[0]:.6f}")
 
     def log_trial_data(self):
         now = time.time()
         stim_on = self.current_stim_on_time
         stim_off = self.current_stim_off_time
-        target_iti = self.ITIs[self.current_trial - 1]
+        target_iti = self.ISIs[self.current_trial - 1]
         
         actual_iti = 0
         if self.last_stim_off_time:
             actual_iti = stim_on - self.last_stim_off_time
         
         iti_error = actual_iti - target_iti
-        stim_file = self.scene_stimuli[self.current_trial - 1]
+        stim_file = self.stimuli['sequence'][self.current_trial - 1]
         actual_stim_duration = stim_off - stim_on
         
         block_trial = f"t{self.current_trial:03d}"
