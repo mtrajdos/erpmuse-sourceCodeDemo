@@ -3,6 +3,7 @@ Config.set('graphics', 'fullscreen', 'auto')
 Config.write()
 
 from kivy.core.window import Window
+from kivy.uix.label import Label
 Window.borderless = True
 
 from kivy.app import App
@@ -11,6 +12,7 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.clock import Clock
 from kivy.graphics import Color, Rectangle
 from kivy.logger import Logger
+from oscReceiver import osc_receiver
 import numpy as np
 import os
 from datetime import datetime
@@ -35,18 +37,21 @@ class EmoScenes(App):
         self.setup_logging()
         Window.bind(on_resize=self.on_window_resize)
         self.paused = False
+        self.connection_check_event = None
+        self.pause_start_time = None
 
     def initialize_variables(self):
-        self.stim_duration = 0.006000
+        self.stim_duration = 0.600000
         self.current_trial = 1
         self.last_stim_off_time = None
         self.current_stim_on_time = None
         self.showing_background = True
+        self.showing_interruption = False
         
         # Lower and upper bounds of ISI range, and count of ISIs to randomize (limiting the total number of trials)
         self.ISIs = np.random.uniform(1.000000, 3.000000, 50000)
         
-        self.next_trial_scheduled = False
+        self.next_trial_scheduled = None  # Track scheduled trial event
         self.trial_running = False
         self.showing_instructions = True
         
@@ -63,6 +68,9 @@ class EmoScenes(App):
         self.load_stimuli()
         self.randomize_stimuli()
         self.preload_images()
+        
+        # Start OSC receiver
+        osc_receiver.start()
 
     def setup_ui(self):
         """Setup stable UI with touch support"""
@@ -100,19 +108,33 @@ class EmoScenes(App):
             keep_ratio=True,
             opacity=0
         )
+        
+        self.interruption_label = Label(
+            text='Connection Interrupted\n\nWaiting for EEG signal...\n\nThe experiment will resume automatically\nwhen connection is restored.',
+            font_size='24sp',
+            text_size=(Window.width * 0.8, None),
+            halign='center',
+            valign='middle',
+            color=(1, 1, 1, 1),  # White text
+            size_hint=(1, 1),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5},
+            opacity=0
+        )
 
         # Add widgets in stable order
         self.layout.add_widget(self.background_image)
         self.layout.add_widget(self.white_square)
         self.layout.add_widget(self.fixation_cross)
+        self.layout.add_widget(self.interruption_label)
+
 
     def setup_logging(self):
         """Enhanced logging setup"""
         log_dir = os.path.join(os.getcwd(), "logs") if platform.system() == "Windows" else os.path.join("/storage/emulated/0/Download", "logs")
         os.makedirs(log_dir, exist_ok=True)
         timestamp = datetime.now(pytz.timezone("Europe/Berlin")).strftime("%Y%m%d_%H%M%S")
-        log_filename = os.path.join(log_dir, f"EmoScenes_{timestamp}.txt")
-        self.datafilepointer = open(log_filename, "w")
+        self.log_file_path = os.path.join(log_dir, f"EmoScenes_{timestamp}.txt")
+        self.datafilepointer = open(self.log_file_path, "w")
         
         experiment_start_time = time.time()
         
@@ -122,7 +144,7 @@ class EmoScenes(App):
             f"# System_Time: {timestamp}\n"
             f"# ISI_Range: {np.min(self.ISIs):.6f} - {np.max(self.ISIs):.6f}\n"
             f"# Images_N: {len(self.preloaded_images)}\n"
-            f"# Log_Path: {log_filename}\n"
+            f"# Log_Path: {self.log_file_path}\n"
             f"#\n"
             f"# Format for break lines:\n"
             f"# BREAK,<POSIX_time>,<reason>,<details>\n"
@@ -210,23 +232,97 @@ class EmoScenes(App):
                     allow_stretch=True,
                     keep_ratio=False
                 )
-
+                
     def handle_touch(self):
         """Touch-based flow control"""
-        if self.showing_instructions:
-            self.show_next_instruction()
+        if self.showing_interruption:
+            # Do nothing during interruption - wait for automatic resume
+            return
         elif self.showing_background:
             self.start_experiment()
         elif not self.showing_background:
             self.end_experiment()
 
+    def check_connection(self, *args):
+        """Check OSC connection status and pause/resume as needed"""
+        is_connected = osc_receiver.is_connected()
+        
+        if not is_connected and not self.paused:
+            # Connection lost - pause experiment
+            self.pause_experiment()
+        elif is_connected and self.paused:
+            # Connection restored - resume experiment
+            self.resume_experiment()
+
+    def pause_experiment(self):
+        """Pause the experiment due to lost connection"""
+        if self.paused:
+            return
+            
+        self.paused = True
+        self.pause_start_time = time.time()
+        
+        # Cancel any scheduled trial
+        if self.next_trial_scheduled:
+            self.next_trial_scheduled.cancel()
+            self.next_trial_scheduled = None
+        
+        # Hide all experiment elements and show interruption screen
+        self.background_image.opacity = 0
+        self.white_square.opacity = 0
+        self.fixation_cross.opacity = 0
+        self.interruption_label.opacity = 1
+        self.showing_interruption = True
+        self.trial_running = False
+        
+        # Log pause event
+        pause_time = time.time()
+        log_entry = f"BREAK,{pause_time:.6f},CONNECTION_LOST,EEG_stream_interrupted\n"
+        self.datafilepointer.write(log_entry)
+        self.datafilepointer.flush()
+        
+        Logger.warning("EEG connection lost - experiment paused")
+
+    def resume_experiment(self):
+        """Resume the experiment after connection restored"""
+        if not self.paused:
+            return
+            
+        pause_duration = time.time() - self.pause_start_time
+        self.paused = False
+        self.showing_interruption = False
+        
+        # Hide interruption screen and show fixation cross
+        self.interruption_label.opacity = 0
+        self.fixation_cross.opacity = 1
+        
+        # Log resume event
+        log_entry = f"BREAK,{time.time():.6f},CONNECTION_RESTORED,pause_duration={pause_duration:.6f}\n"
+        self.datafilepointer.write(log_entry)
+        self.datafilepointer.flush()
+        
+        Logger.info(f"EEG connection restored - resuming after {pause_duration:.2f}s pause")
+        
+        # Resume with next trial if not currently in a trial
+        if not self.trial_running and self.current_trial <= len(self.stimuli['sequence']):
+            # Use a short delay before resuming
+            self.next_trial_scheduled = Clock.schedule_once(self.show_trial, 0.5)
+
     def show_trial(self, dt):
-        """Stable trial display with enhanced timing"""
+        """Stable trial display with connection check"""
+        
+        self.check_connection()
+        
+        # Don't start trial if paused
+        if self.paused:
+            return
+            
         if self.trial_running:
             return
                 
         intended_start = time.time()
         self.trial_running = True
+        self.next_trial_scheduled = None  # Clear scheduled reference
 
         current_stim = self.stimuli['sequence'][self.current_trial - 1]
         if current_stim in self.preloaded_images:
@@ -238,17 +334,29 @@ class EmoScenes(App):
         prep_overhead = time.time() - intended_start
         
         def show_stimulus(dt):
+            # Final check before showing stimulus
+            if self.paused:
+                self.trial_running = False
+                return
+                
             self.background_image.opacity = 1
             self.white_square.opacity = 1
             self.white_square.pos = (Window.width - self.white_square.width, 0)
             self.current_stim_on_time = time.time()
             adjusted_duration = max(0, self.stim_duration - prep_overhead)
+            self.check_connection()
             Clock.schedule_once(self.end_trial, adjusted_duration)
         
         Clock.schedule_once(show_stimulus, 0)
 
     def end_trial(self, dt):
         """Stable trial ending with enhanced logging"""
+        
+        self.check_connection()
+        
+        if self.paused:
+            return
+        
         self.current_stim_off_time = time.time()
         self.log_trial_data()
         
@@ -275,7 +383,7 @@ class EmoScenes(App):
             if self.current_trial == 125:
                 self.randomize_stimuli()
             
-            Clock.schedule_once(self.show_trial, adjusted_isi)
+            self.next_trial_scheduled = Clock.schedule_once(self.show_trial, adjusted_isi)
 
     def on_window_resize(self, window, width, height):
         """Stable window resizing"""
@@ -283,6 +391,7 @@ class EmoScenes(App):
         self.fixation_cross.size = (width * 0.05, height * 0.05)
         self.background_image.size = (width, height)
         self.white_square.pos = (width - self.white_square.width, 0)
+        self.interruption_label.text_size = (width * 0.8, None)
 
     def build(self):
         return self.layout
@@ -296,20 +405,23 @@ class EmoScenes(App):
             self.background_image.source = os.path.join(os.path.dirname(__file__), "instructionsDE", "Instruktion1.jpg")
             self.background_image.reload()
 
-    def show_next_instruction(self):
-        self.showing_instructions = False
-        self.background_image.opacity = 0
-        self.fixation_cross.opacity = 0
-        self.start_experiment()
-
     def start_experiment(self):
         """Initial experiment start after first touch"""
         self.showing_background = False
         self.fixation_cross.opacity = 1
+        
+        # Start connection monitoring
+        self.connection_check_event = Clock.schedule_interval(self.check_connection, 0.008)
+        
         Clock.schedule_once(self.show_trial, self.ISIs[0])
         Logger.info(f"Experiment started, first ISI: {self.ISIs[0]:.6f}")
 
     def log_trial_data(self):
+        
+        if not osc_receiver.is_connected():
+            Logger.warning(f"Skipping log for trial {self.current_trial} - connection lost")
+            return
+        
         now = time.time()
         stim_on = self.current_stim_on_time
         stim_off = self.current_stim_off_time
@@ -340,6 +452,14 @@ class EmoScenes(App):
 
     def end_experiment(self):
         Logger.info("Experiment ending")
+        
+        # Stop connection monitoring
+        if self.connection_check_event:
+            self.connection_check_event.cancel()
+        
+        # Stop OSC receiver
+        osc_receiver.stop()
+        
         if hasattr(self, 'datafilepointer'):
             self.datafilepointer.close()
         self.stop()
