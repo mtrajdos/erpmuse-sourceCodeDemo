@@ -120,7 +120,7 @@ class EmoScenes(App):
             f"# Experiment Info:\n"
             f"# POSIX_Start: {experiment_start_time:.6f}\n"
             f"# System_Time: {timestamp}\n"
-            f"# ITI_Range: {np.min(self.ISIs):.6f} - {np.max(self.ISIs):.6f}\n"
+            f"# ISI_Range: {np.min(self.ISIs):.6f} - {np.max(self.ISIs):.6f}\n"
             f"# Images_N: {len(self.preloaded_images)}\n"
             f"# Log_Path: {log_filename}\n"
             f"#\n"
@@ -129,7 +129,7 @@ class EmoScenes(App):
             f"#\n"
         )
         self.datafilepointer.write(header)
-        self.datafilepointer.write("Timestamp,BlockTrial,StimFile,StimON,StimOFF,Stim_Duration,Target_ITI,Actual_ITI,ITI_Error\n")
+        self.datafilepointer.write("Timestamp,BlockTrial,StimFile,StimON,StimOFF,Stim_Duration,Target_ISI,Actual_ISI,ISI_Error\n")
         self.datafilepointer.flush()
         
         self.experiment_start_time = experiment_start_time
@@ -262,20 +262,20 @@ class EmoScenes(App):
             self.fixation_cross.opacity = 0
             Clock.schedule_once(lambda dt: self.end_experiment(), 0)
         else:
-            next_iti = self.ISIs[self.current_trial]
+            next_isi = self.ISIs[self.current_trial]
             if self.last_stim_off_time and self.current_stim_on_time:
                 actual_duration = self.current_stim_off_time - self.current_stim_on_time
                 duration_drift = actual_duration - self.stim_duration
-                adjusted_iti = max(1.000000, next_iti - duration_drift)
+                adjusted_isi = max(0.100000, next_isi - duration_drift)
             else:
-                adjusted_iti = next_iti
+                adjusted_isi = next_isi
                 
             self.current_trial += 1
             
             if self.current_trial == 125:
                 self.randomize_stimuli()
             
-            Clock.schedule_once(self.show_trial, adjusted_iti)
+            Clock.schedule_once(self.show_trial, adjusted_isi)
 
     def on_window_resize(self, window, width, height):
         """Stable window resizing"""
@@ -307,19 +307,19 @@ class EmoScenes(App):
         self.showing_background = False
         self.fixation_cross.opacity = 1
         Clock.schedule_once(self.show_trial, self.ISIs[0])
-        Logger.info(f"Experiment started, first ITI: {self.ISIs[0]:.6f}")
+        Logger.info(f"Experiment started, first ISI: {self.ISIs[0]:.6f}")
 
     def log_trial_data(self):
         now = time.time()
         stim_on = self.current_stim_on_time
         stim_off = self.current_stim_off_time
-        target_iti = self.ISIs[self.current_trial - 1]
+        target_isi = self.ISIs[self.current_trial - 1]
         
-        actual_iti = 0
+        actual_isi = 0
         if self.last_stim_off_time:
-            actual_iti = stim_on - self.last_stim_off_time
+            actual_isi = stim_on - self.last_stim_off_time
         
-        iti_error = actual_iti - target_iti
+        isi_error = actual_isi - target_isi
         stim_file = self.stimuli['sequence'][self.current_trial - 1]
         actual_stim_duration = stim_off - stim_on
         
@@ -331,9 +331,9 @@ class EmoScenes(App):
                     f"{stim_on:.6f},"            # StimON
                     f"{stim_off:.6f},"           # StimOFF
                     f"{actual_stim_duration:.6f}," # Stim_Duration
-                    f"{target_iti:.6f},"         # Target_ITI
-                    f"{actual_iti:.6f},"         # Actual_ITI
-                    f"{iti_error:.6f}\n")        # ITI_Error
+                    f"{target_isi:.6f},"         # Target_ISI
+                    f"{actual_isi:.6f},"         # Actual_ISI
+                    f"{isi_error:.6f}\n")        # ISI_Error
                     
         self.datafilepointer.write(log_entry)
         self.datafilepointer.flush()
