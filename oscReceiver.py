@@ -28,7 +28,7 @@ except ImportError:
 print(f"Using {OSC_BACKEND} for OSC communication")
 
 class OSCReceiver:
-    def __init__(self, ip="127.0.0.1", port=5000, timeout_threshold=0.050):
+    def __init__(self, ip="127.0.0.1", port=5000, timeout_threshold=0.200):
         self.ip = ip
         self.port = port
         self.timeout_threshold = timeout_threshold
