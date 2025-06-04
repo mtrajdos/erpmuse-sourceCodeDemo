@@ -41,7 +41,7 @@ class EmoScenes(App):
         self.pause_start_time = None
 
     def initialize_variables(self):
-        self.stim_duration = 0.000006
+        self.stim_duration = 0.600000
         self.current_trial = 1
         self.last_stim_off_time = None
         self.current_stim_on_time = None
@@ -49,7 +49,7 @@ class EmoScenes(App):
         self.showing_interruption = False
         
         # Lower and upper bounds of ISI range, and count of ISIs to randomize (limiting the total number of trials)
-        self.ISIs = np.random.uniform(0.000001, 0.000003, 50000)
+        self.ISIs = np.random.uniform(0.100000, 0.300000, 50000)
         
         self.next_trial_scheduled = None  # Track scheduled trial event
         self.trial_running = False
