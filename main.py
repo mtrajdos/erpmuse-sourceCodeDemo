@@ -25,7 +25,7 @@ class TouchableFloatLayout(FloatLayout):
     def on_touch_down(self, touch):
         app = App.get_running_app()
         if app:
-            app.handle_touch()
+            app.handle_experiment_navigation()
         return super().on_touch_down(touch)
 
 class EmoScenes(App):
@@ -45,14 +45,14 @@ class EmoScenes(App):
         self.current_trial = 1
         self.last_stim_off_time = None
         self.current_stim_on_time = None
-        self.showing_background = True
-        self.showing_interruption = False
+        self.in_instruction_phase = True
+        self.connection_lost_screen_active = False
         
         # Lower and upper bounds of ISI range, and count of ISIs to randomize (limiting the total number of trials)
         self.ISIs = np.random.uniform(1.000000, 3.000000, 50000)
         
         self.next_trial_scheduled = None  # Track scheduled trial event
-        self.trial_running = False
+        self.stimulus_currently_displayed = False
         self.showing_instructions = True
         
         # Initialize stimuli structure
@@ -74,8 +74,8 @@ class EmoScenes(App):
             'highneg': 'square_153'
         }
         
-        self.load_stimuli()
-        self.randomize_stimuli()
+        self.load_and_categorize_stimulus_files()
+        self.create_randomized_stimulus_sequence()
         self.preload_images()
         
         # Start OSC receiver
@@ -217,7 +217,7 @@ class EmoScenes(App):
         
         self.experiment_start_time = experiment_start_time
 
-    def load_stimuli(self):
+    def load_and_categorize_stimulus_files(self):
         """Load stimuli files and organize by category"""
         # Initialize category dictionary
         for category in self.stimuli['categories']:
@@ -249,7 +249,7 @@ class EmoScenes(App):
             count = len(self.stimuli['files_per_category'][category])
             Logger.info(f"Loaded {count} stimuli for category: {category}")
 
-    def randomize_stimuli(self):
+    def create_randomized_stimulus_sequence(self):
         """Create a large sequence of randomized blocks, each unique"""
         self.stimuli['sequence'] = []
         
@@ -310,17 +310,17 @@ class EmoScenes(App):
         square_name = self.category_to_square.get(category, 'square_201')  # Default to neutral
         return self.squares.get(square_name, self.square_201)
                 
-    def handle_touch(self):
-        """Touch-based flow control"""
-        if self.showing_interruption:
+    def handle_experiment_navigation(self):
+        """Touch-based experiment flow control"""
+        if self.connection_lost_screen_active:
             # Do nothing during interruption - wait for automatic resume
             return
-        elif self.showing_background:
+        elif self.in_instruction_phase:
             self.start_experiment()
-        elif not self.showing_background:
+        elif not self.in_instruction_phase:
             self.end_experiment()
 
-    def check_connection(self, *args):
+    def monitor_eeg_connection(self, *args):
         """Check OSC connection status and pause/resume as needed"""
         is_connected = osc_receiver.is_connected()
         
@@ -351,8 +351,8 @@ class EmoScenes(App):
             square.opacity = 0
         self.fixation_cross.opacity = 0
         self.interruption_label.opacity = 1
-        self.showing_interruption = True
-        self.trial_running = False
+        self.connection_lost_screen_active = True
+        self.stimulus_currently_displayed = False
         
         # Log pause event
         pause_time = time.time()
@@ -369,7 +369,7 @@ class EmoScenes(App):
             
         pause_duration = time.time() - self.pause_start_time
         self.paused = False
-        self.showing_interruption = False
+        self.connection_lost_screen_active = False
         
         # Hide interruption screen and show fixation cross
         self.interruption_label.opacity = 0
@@ -383,24 +383,24 @@ class EmoScenes(App):
         Logger.info(f"EEG connection restored - resuming after {pause_duration:.2f}s pause")
         
         # Resume with next trial if not currently in a trial
-        if not self.trial_running and self.current_trial <= len(self.stimuli['sequence']):
+        if not self.stimulus_currently_displayed and self.current_trial <= len(self.stimuli['sequence']):
             # Use a short delay before resuming
-            self.next_trial_scheduled = Clock.schedule_once(self.show_trial, 0.5)
+            self.next_trial_scheduled = Clock.schedule_once(self.prepare_trial, 0.5)
 
-    def show_trial(self, dt):
-        """Stable trial display with connection check"""
+    def prepare_trial(self, dt):
+        """Prepare trial and schedule stimulus display"""
         
-        self.check_connection()
+        self.monitor_eeg_connection()
         
         # Don't start trial if paused
         if self.paused:
             return
             
-        if self.trial_running:
+        if self.stimulus_currently_displayed:
             return
                 
         intended_start = time.time()
-        self.trial_running = True
+        self.stimulus_currently_displayed = True
         self.next_trial_scheduled = None  # Clear scheduled reference
 
         current_stim = self.stimuli['sequence'][self.current_trial - 1]
@@ -416,10 +416,10 @@ class EmoScenes(App):
 
         prep_overhead = time.time() - intended_start
         
-        def show_stimulus(dt):
+        def display_stimulus(dt):
             # Final check before showing stimulus
             if self.paused:
-                self.trial_running = False
+                self.stimulus_currently_displayed = False
                 return
                 
             self.background_image.opacity = 1
@@ -427,15 +427,15 @@ class EmoScenes(App):
             self.current_square.pos = (Window.width - self.current_square.width, 0)
             self.current_stim_on_time = time.time()
             adjusted_duration = max(0, self.stim_duration - prep_overhead)
-            self.check_connection()
-            Clock.schedule_once(self.end_trial, adjusted_duration)
+            self.monitor_eeg_connection()
+            Clock.schedule_once(self.complete_trial, adjusted_duration)
         
-        Clock.schedule_once(show_stimulus, 0)
+        Clock.schedule_once(display_stimulus, 0)
 
-    def end_trial(self, dt):
-        """Stable trial ending with enhanced logging"""
+    def complete_trial(self, dt):
+        """Hide stimulus and schedule next trial"""
         
-        self.check_connection()
+        self.monitor_eeg_connection()
         
         if self.paused:
             return
@@ -447,7 +447,7 @@ class EmoScenes(App):
         self.current_square.opacity = 0
         
         self.last_stim_off_time = self.current_stim_off_time
-        self.trial_running = False
+        self.stimulus_currently_displayed = False
         
         if self.current_trial == len(self.stimuli['sequence']):
             self.fixation_cross.opacity = 0
@@ -463,7 +463,7 @@ class EmoScenes(App):
                 
             self.current_trial += 1
             
-            self.next_trial_scheduled = Clock.schedule_once(self.show_trial, adjusted_isi)
+            self.next_trial_scheduled = Clock.schedule_once(self.prepare_trial, adjusted_isi)
 
     def on_window_resize(self, window, width, height):
         """Stable window resizing"""
@@ -489,13 +489,13 @@ class EmoScenes(App):
 
     def start_experiment(self):
         """Initial experiment start after first touch"""
-        self.showing_background = False
+        self.in_instruction_phase = False
         self.fixation_cross.opacity = 1
         
         # Start connection monitoring
-        self.connection_check_event = Clock.schedule_interval(self.check_connection, 0.008)
+        self.connection_check_event = Clock.schedule_interval(self.monitor_eeg_connection, 0.008)
         
-        Clock.schedule_once(self.show_trial, self.ISIs[0])
+        Clock.schedule_once(self.prepare_trial, self.ISIs[0])
         Logger.info(f"Experiment started, first ISI: {self.ISIs[0]:.6f}")
 
     def log_trial_data(self):
