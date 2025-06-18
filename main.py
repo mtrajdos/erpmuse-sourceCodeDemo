@@ -65,6 +65,15 @@ class EmoScenes(App):
             'folder': os.path.join(os.path.dirname(__file__), "stimuli")
         }
         
+        # Mapping of categories to square types
+        self.category_to_square = {
+            'highpos': 'square_255',
+            'lowpos': 'square_228',
+            'neutral': 'square_201',
+            'lowneg': 'square_174',
+            'highneg': 'square_153'
+        }
+        
         self.load_stimuli()
         self.randomize_stimuli()
         self.preload_images()
@@ -149,6 +158,15 @@ class EmoScenes(App):
             opacity=0
         )
         
+        # Store squares in a dictionary for easy access
+        self.squares = {
+            'square_255': self.square_255,
+            'square_228': self.square_228,
+            'square_201': self.square_201,
+            'square_174': self.square_174,
+            'square_153': self.square_153
+        }
+        
         self.interruption_label = Label(
             text='Connection Interrupted\n\nWaiting for EEG signal...\n\nThe experiment will resume automatically\nwhen connection is restored.',
             font_size='24sp',
@@ -170,7 +188,6 @@ class EmoScenes(App):
         self.layout.add_widget(self.square_153)
         self.layout.add_widget(self.fixation_cross)
         self.layout.add_widget(self.interruption_label)
-
 
     def setup_logging(self):
         """Enhanced logging setup"""
@@ -280,6 +297,18 @@ class EmoScenes(App):
                     allow_stretch=True,
                     keep_ratio=False
                 )
+
+    def get_stimulus_category(self, stimulus_file):
+        """Extract category from stimulus filename"""
+        for category in self.stimuli['categories']:
+            if category in stimulus_file.lower():
+                return category
+        return 'neutral'  # Default to neutral if category not found
+
+    def get_square_for_category(self, category):
+        """Get the appropriate square widget for a given category"""
+        square_name = self.category_to_square.get(category, 'square_201')  # Default to neutral
+        return self.squares.get(square_name, self.square_201)
                 
     def handle_touch(self):
         """Touch-based flow control"""
@@ -317,7 +346,9 @@ class EmoScenes(App):
         
         # Hide all experiment elements and show interruption screen
         self.background_image.opacity = 0
-        self.white_square.opacity = 0
+        # Hide all squares
+        for square in self.squares.values():
+            square.opacity = 0
         self.fixation_cross.opacity = 0
         self.interruption_label.opacity = 1
         self.showing_interruption = True
@@ -379,6 +410,10 @@ class EmoScenes(App):
             Logger.error(f"Image not preloaded: {current_stim}")
             return
 
+        # Determine which square to use based on stimulus category
+        category = self.get_stimulus_category(current_stim)
+        self.current_square = self.get_square_for_category(category)
+
         prep_overhead = time.time() - intended_start
         
         def show_stimulus(dt):
@@ -388,8 +423,8 @@ class EmoScenes(App):
                 return
                 
             self.background_image.opacity = 1
-            self.white_square.opacity = 1
-            self.white_square.pos = (Window.width - self.white_square.width, 0)
+            self.current_square.opacity = 1
+            self.current_square.pos = (Window.width - self.current_square.width, 0)
             self.current_stim_on_time = time.time()
             adjusted_duration = max(0, self.stim_duration - prep_overhead)
             self.check_connection()
@@ -409,7 +444,7 @@ class EmoScenes(App):
         self.log_trial_data()
         
         self.background_image.opacity = 0
-        self.white_square.opacity = 0
+        self.current_square.opacity = 0
         
         self.last_stim_off_time = self.current_stim_off_time
         self.trial_running = False
@@ -435,7 +470,9 @@ class EmoScenes(App):
         self.rect.size = (width, height)
         self.fixation_cross.size = (width * 0.05, height * 0.05)
         self.background_image.size = (width, height)
-        self.white_square.pos = (width - self.white_square.width, 0)
+        # Resize all squares
+        for square in self.squares.values():
+            square.pos = (width - square.width, 0)
         self.interruption_label.text_size = (width * 0.8, None)
 
     def build(self):
@@ -513,7 +550,9 @@ class EmoScenes(App):
         Window.fullscreen = "auto"
         self.background_image.opacity = 0
         self.fixation_cross.opacity = 0
-        self.white_square.opacity = 0
+        # Hide all squares initially
+        for square in self.squares.values():
+            square.opacity = 0
         self.show_instructions()
 
 if __name__ == "__main__":
