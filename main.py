@@ -100,7 +100,7 @@ class EmoScenes(App):
         )
 
         self.white_square = KivyImage(
-            source="sprites/white_square.png",
+            source="sprites/255_square.png",
             size_hint=(None, None),
             size=(110, 110),
             pos=(Window.width - 110, 0),
