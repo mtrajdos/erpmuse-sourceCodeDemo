@@ -1,19 +1,13 @@
 from kivy.config import Config
-Config.set('graphics', 'fullscreen', 'auto')
-Config.set('graphics', 'vsync', '1')  # Enable VSync
-Config.set('graphics', 'maxfps', '0')  # Uncap FPS - let device run at native refresh
-Config.write()
-
 from kivy.core.window import Window
 from kivy.uix.label import Label
-Window.borderless = True
-
 from kivy.app import App
 from kivy.uix.image import Image as KivyImage
 from kivy.uix.floatlayout import FloatLayout
 from kivy.clock import Clock
 from kivy.graphics import Color, Rectangle
 from kivy.logger import Logger
+from kivy.utils import platform as kivy_platform
 from oscReceiver import osc_receiver
 import numpy as np
 import os
@@ -22,6 +16,12 @@ import pytz
 import platform
 import time
 import random
+
+Window.borderless = True
+Config.set('graphics', 'fullscreen', 'auto')
+Config.set('graphics', 'vsync', '1')  # Enable VSync
+Config.set('graphics', 'maxfps', '0')  # Uncap FPS - let device run at native refresh
+Config.write()
 
 class TouchableFloatLayout(FloatLayout):
     def on_touch_down(self, touch):
@@ -35,7 +35,7 @@ class EmoScenes(App):
         super().__init__(**kwargs)
         
         self.initialize_variables()
-        self.setup_mobile_optimizations()  # Must come before setup_logging
+        self.setup_platform_specifics()
         self.setup_ui()
         self.setup_logging()
         Window.bind(on_resize=self.on_window_resize)
@@ -44,6 +44,7 @@ class EmoScenes(App):
         self.pause_start_time = None
 
     def initialize_variables(self):
+        self.get_time = time.time  
         self.stim_duration = 0.600000
         self.current_trial = 1
         self.last_stim_off_time = None
@@ -84,41 +85,37 @@ class EmoScenes(App):
         # Start OSC receiver
         osc_receiver.start()
 
-    def setup_mobile_optimizations(self):
-        """Apply mobile-specific timing optimizations"""
-        self.is_mobile = platform.system() in ['Android', 'iOS']
-        
-        if self.is_mobile:
-            Logger.info("Mobile platform detected - applying timing optimizations")
+    def setup_platform_specifics(self):
+            """
+            A single method to handle all platform-specific configurations.
+            """
             
-            # Use high-precision timer on mobile
-            self.get_time = time.perf_counter
-            
-            # Try to set process priority (Android)
-            if platform.system() == 'Android':
-                try:
-                    from jnius import autoclass
-                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
-                    Process = autoclass('android.os.Process')
-                    # Set thread priority for more consistent timing
-                    Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
-                    Logger.info("Set Android thread priority to URGENT_DISPLAY")
-                except Exception as e:
-                    Logger.warning(f"Could not set Android priority: {e}")
-            
-            # Reduce Clock's max iteration time for better precision
-            Clock.max_iteration = 8  # Default is 20
-            
-            # Pre-calculate frame time estimates for common refresh rates
-            self.frame_times = {
-                60: 1.0/60.0,  # 16.67ms
-                90: 1.0/90.0,  # 11.11ms
-                120: 1.0/120.0 # 8.33ms
-            }
-        else:
-            # PC testing mode
-            Logger.info("PC platform detected - using standard timing")
-            self.get_time = time.time
+            # Check if we are on a mobile platform
+            if kivy_platform in ('android', 'ios'):
+                Logger.info(f"Mobile platform detected: {kivy_platform}. Applying optimizations.")
+                self.is_mobile = True
+                self.get_time = time.perf_counter  # Use high-precision timer
+                
+                # Set the log directory for Android
+                # Ensure you have permissions in buildozer.spec: android.permissions = READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE
+                self.log_dir = "/storage/emulated/0/Download/logs"
+
+                # Apply Android-specific process priority
+                if kivy_platform == 'android':
+                    try:
+                        from jnius import autoclass
+                        Process = autoclass('android.os.Process')
+                        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+                        Logger.info("Set Android thread priority to URGENT_DISPLAY")
+                    except Exception as e:
+                        Logger.warning(f"Could not set Android priority: {e}")
+
+            # Otherwise, configure for a PC platform
+            else:
+                Logger.info(f"PC platform detected: {kivy_platform}. Using standard settings.")
+                self.is_mobile = False
+                self.get_time = time.time  # Use standard timer
+                self.log_dir = os.path.join(os.getcwd(), "logs")
 
     def setup_ui(self):
         """Setup stable UI with touch support"""
@@ -229,11 +226,11 @@ class EmoScenes(App):
         self.layout.add_widget(self.interruption_label)
 
     def setup_logging(self):
-        """Enhanced logging setup"""
-        log_dir = os.path.join(os.getcwd(), "logs") if platform.system() == "Windows" else os.path.join("/storage/emulated/0/Download", "logs")
-        os.makedirs(log_dir, exist_ok=True)
+        """Enhanced logging setup that now uses the pre-configured log directory."""
+        os.makedirs(self.log_dir, exist_ok=True)
+        
         timestamp = datetime.now(pytz.timezone("Europe/Berlin")).strftime("%Y%m%d_%H%M%S")
-        self.log_file_path = os.path.join(log_dir, f"EmoScenes_{timestamp}.txt")
+        self.log_file_path = os.path.join(self.log_dir, f"EmoScenes_{timestamp}.txt")
         self.datafilepointer = open(self.log_file_path, "w")
         
         experiment_start_time = self.get_time()
