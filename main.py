@@ -1,5 +1,7 @@
 from kivy.config import Config
 Config.set('graphics', 'fullscreen', 'auto')
+Config.set('graphics', 'vsync', '1')  # Enable VSync
+Config.set('graphics', 'maxfps', '0')  # Uncap FPS - let device run at native refresh
 Config.write()
 
 from kivy.core.window import Window
@@ -33,6 +35,7 @@ class EmoScenes(App):
         super().__init__(**kwargs)
         
         self.initialize_variables()
+        self.setup_mobile_optimizations()  # Must come before setup_logging
         self.setup_ui()
         self.setup_logging()
         Window.bind(on_resize=self.on_window_resize)
@@ -80,6 +83,42 @@ class EmoScenes(App):
         
         # Start OSC receiver
         osc_receiver.start()
+
+    def setup_mobile_optimizations(self):
+        """Apply mobile-specific timing optimizations"""
+        self.is_mobile = platform.system() in ['Android', 'iOS']
+        
+        if self.is_mobile:
+            Logger.info("Mobile platform detected - applying timing optimizations")
+            
+            # Use high-precision timer on mobile
+            self.get_time = time.perf_counter
+            
+            # Try to set process priority (Android)
+            if platform.system() == 'Android':
+                try:
+                    from jnius import autoclass
+                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                    Process = autoclass('android.os.Process')
+                    # Set thread priority for more consistent timing
+                    Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+                    Logger.info("Set Android thread priority to URGENT_DISPLAY")
+                except Exception as e:
+                    Logger.warning(f"Could not set Android priority: {e}")
+            
+            # Reduce Clock's max iteration time for better precision
+            Clock.max_iteration = 8  # Default is 20
+            
+            # Pre-calculate frame time estimates for common refresh rates
+            self.frame_times = {
+                60: 1.0/60.0,  # 16.67ms
+                90: 1.0/90.0,  # 11.11ms
+                120: 1.0/120.0 # 8.33ms
+            }
+        else:
+            # PC testing mode
+            Logger.info("PC platform detected - using standard timing")
+            self.get_time = time.time
 
     def setup_ui(self):
         """Setup stable UI with touch support"""
@@ -197,15 +236,19 @@ class EmoScenes(App):
         self.log_file_path = os.path.join(log_dir, f"EmoScenes_{timestamp}.txt")
         self.datafilepointer = open(self.log_file_path, "w")
         
-        experiment_start_time = time.time()
+        experiment_start_time = self.get_time()
         
         header = (
             f"# Experiment Info:\n"
             f"# POSIX_Start: {experiment_start_time:.6f}\n"
             f"# System_Time: {timestamp}\n"
+            f"# Platform: {platform.system()}\n"
+            f"# Mobile_Optimizations: {self.is_mobile}\n"
             f"# ISI_Range: {np.min(self.ISIs):.6f} - {np.max(self.ISIs):.6f}\n"
             f"# Images_N: {len(self.preloaded_images)}\n"
             f"# Log_Path: {self.log_file_path}\n"
+            f"# VSync: Enabled\n"
+            f"# Target_Stim_Duration: {self.stim_duration:.6f}\n"
             f"#\n"
             f"# Format for break lines:\n"
             f"# BREAK,<POSIX_time>,<reason>,<details>\n"
@@ -337,12 +380,16 @@ class EmoScenes(App):
             return
             
         self.paused = True
-        self.pause_start_time = time.time()
+        self.pause_start_time = self.get_time()
         
         # Cancel any scheduled trial
         if self.next_trial_scheduled:
             self.next_trial_scheduled.cancel()
             self.next_trial_scheduled = None
+        
+        # Cancel mobile frame counter if active
+        if self.is_mobile and hasattr(self, 'mobile_timing_event'):
+            self.mobile_timing_event.cancel()
         
         # Hide all experiment elements and show interruption screen
         self.background_image.opacity = 0
@@ -355,7 +402,7 @@ class EmoScenes(App):
         self.stimulus_currently_displayed = False
         
         # Log pause event
-        pause_time = time.time()
+        pause_time = self.get_time()
         log_entry = f"BREAK,{pause_time:.6f},CONNECTION_LOST,EEG_stream_interrupted\n"
         self.datafilepointer.write(log_entry)
         self.datafilepointer.flush()
@@ -367,7 +414,7 @@ class EmoScenes(App):
         if not self.paused:
             return
             
-        pause_duration = time.time() - self.pause_start_time
+        pause_duration = self.get_time() - self.pause_start_time
         self.paused = False
         self.connection_lost_screen_active = False
         
@@ -376,7 +423,7 @@ class EmoScenes(App):
         self.fixation_cross.opacity = 1
         
         # Log resume event
-        log_entry = f"BREAK,{time.time():.6f},CONNECTION_RESTORED,pause_duration={pause_duration:.6f}\n"
+        log_entry = f"BREAK,{self.get_time():.6f},CONNECTION_RESTORED,pause_duration={pause_duration:.6f}\n"
         self.datafilepointer.write(log_entry)
         self.datafilepointer.flush()
         
@@ -399,7 +446,6 @@ class EmoScenes(App):
         if self.stimulus_currently_displayed:
             return
                 
-        intended_start = time.time()
         self.stimulus_currently_displayed = True
         self.next_trial_scheduled = None  # Clear scheduled reference
 
@@ -413,8 +459,6 @@ class EmoScenes(App):
         # Determine which square to use based on stimulus category
         category = self.get_stimulus_category(current_stim)
         self.current_square = self.get_square_for_category(category)
-
-        prep_overhead = time.time() - intended_start
         
         def display_stimulus(dt):
             # Final check before showing stimulus
@@ -425,10 +469,30 @@ class EmoScenes(App):
             self.background_image.opacity = 1
             self.current_square.opacity = 1
             self.current_square.pos = (Window.width - self.current_square.width, 0)
-            self.current_stim_on_time = time.time()
-            adjusted_duration = max(0, self.stim_duration - prep_overhead)
+            self.current_stim_on_time = self.get_time()
+            
+            if self.is_mobile:
+                # Mobile: Use frame-counting for precise 600ms
+                # This accounts for dynamic refresh rate changes
+                self.stimulus_frames = 0
+                self.target_duration_ns = int(self.stim_duration * 1e9)  # nanoseconds
+                self.stimulus_start_ns = int(self.current_stim_on_time * 1e9)
+                
+                def mobile_frame_counter(dt):
+                    current_ns = int(self.get_time() * 1e9)
+                    elapsed_ns = current_ns - self.stimulus_start_ns
+                    
+                    if elapsed_ns >= self.target_duration_ns:
+                        self.complete_trial(dt)
+                        return False  # Stop callback
+                    return True  # Continue
+                
+                self.mobile_timing_event = Clock.schedule_interval(mobile_frame_counter, 0)
+            else:
+                # PC testing: Simple timer
+                Clock.schedule_once(self.complete_trial, self.stim_duration)
+            
             self.monitor_eeg_connection()
-            Clock.schedule_once(self.complete_trial, adjusted_duration)
         
         Clock.schedule_once(display_stimulus, 0)
 
@@ -440,7 +504,7 @@ class EmoScenes(App):
         if self.paused:
             return
         
-        self.current_stim_off_time = time.time()
+        self.current_stim_off_time = self.get_time()
         self.log_trial_data()
         
         self.background_image.opacity = 0
@@ -504,7 +568,7 @@ class EmoScenes(App):
             Logger.warning(f"Skipping log for trial {self.current_trial} - connection lost")
             return
         
-        now = time.time()
+        now = self.get_time()
         stim_on = self.current_stim_on_time
         stim_off = self.current_stim_off_time
         target_isi = self.ISIs[self.current_trial - 1]
