@@ -17,6 +17,7 @@ import platform
 import time
 import random
 
+# Window configuration
 Window.borderless = True
 Config.set('graphics', 'fullscreen', 'auto')
 Config.set('graphics', 'vsync', '1')  # Enable VSync
@@ -24,6 +25,7 @@ Config.set('graphics', 'maxfps', '0')  # Uncap FPS - let device run at native re
 Config.write()
 
 class TouchableFloatLayout(FloatLayout):
+    """Float layout that handles touch events for experiment navigation"""
     def on_touch_down(self, touch):
         app = App.get_running_app()
         if app:
@@ -38,94 +40,95 @@ class EmoScenes(App):
         self.setup_ui()
         self.setup_logging()
         Window.bind(on_resize=self.on_window_resize)
+        
+        # Connection monitoring variables
         self.paused = False
         self.connection_check_event = None
         self.pause_start_time = None
 
     def initialize_variables(self):
-        self.get_time = time.time  
-        self.stim_duration = 0.600000
+        """Initialize all experiment variables and load stimuli"""
+        # Timing configuration
+        self.stim_duration = 0.600000  # 600ms stimulus duration
         self.current_trial = 1
         self.last_stim_off_time = None
         self.current_stim_on_time = None
         self.in_instruction_phase = True
         self.connection_lost_screen_active = False
         
-        # Lower and upper bounds of ISI range, and count of ISIs to randomize (limiting the total number of trials)
+        # Generate random ISIs between 1-3 seconds for 50,000 trials
         self.ISIs = np.random.uniform(1.000000, 3.000000, 50000)
         
-        self.next_trial_scheduled = None  # Track scheduled trial event
+        # Trial scheduling variables
+        self.next_trial_scheduled = None
         self.stimulus_currently_displayed = False
         self.showing_instructions = True
         
-        # Initialize stimuli structure
+        # Stimulus configuration
         self.stimuli = {
             'categories': ['highneg', 'lowneg', 'neutral', 'lowpos', 'highpos'],
             'per_category': 25,
-            'files_per_category': {},  # Dict mapping category -> list of files
+            'files_per_category': {},
             'sequence': [],
             'all_files': [],
             'folder': os.path.join(os.path.dirname(__file__), "stimuli")
         }
         
-        # Mapping of categories to square types
+        # Map categories to brightness squares
         self.category_to_square = {
-            'highpos': 'square_255',
-            'lowpos': 'square_255',
-            'neutral': 'square_255',
-            'lowneg': 'square_255',
-            'highneg': 'square_255'
+            'highpos': 'square_0',
+            'lowpos': 'square_0',
+            'neutral': 'square_0',
+            'lowneg': 'square_0',
+            'highneg': 'square_0'
         }
         
+        # Load and prepare stimuli
         self.load_and_categorize_stimulus_files()
         self.create_randomized_stimulus_sequence()
         self.preload_images()
         
-        # Start OSC receiver
+        # Start OSC receiver for EEG connection
         osc_receiver.start()
 
     def setup_platform_specifics(self):
-            """
-            A single method to handle all platform-specific configurations.
-            """
+        """Configure platform-specific settings"""
+        # Always use POSIX timestamps
+        self.get_time = time.time
+        
+        # Check if we are on a mobile platform
+        if kivy_platform in ('android', 'ios'):
+            Logger.info(f"Mobile platform detected: {kivy_platform}")
+            self.is_mobile = True
             
-            # Check if we are on a mobile platform
-            if kivy_platform in ('android', 'ios'):
-                Logger.info(f"Mobile platform detected: {kivy_platform}. Applying optimizations.")
-                self.is_mobile = True
-                # Keep using time.time for POSIX timestamps on all platforms
-                self.get_time = time.time
-                
-                # Set the log directory for Android
-                # Ensure you have permissions in buildozer.spec: android.permissions = READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE
-                self.log_dir = "/storage/emulated/0/Download/logs"
+            # Set the log directory for Android
+            self.log_dir = "/storage/emulated/0/Download/logs"
 
-                # Apply Android-specific process priority
-                if kivy_platform == 'android':
-                    try:
-                        from jnius import autoclass
-                        Process = autoclass('android.os.Process')
-                        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
-                        Logger.info("Set Android thread priority to URGENT_DISPLAY")
-                    except Exception as e:
-                        Logger.warning(f"Could not set Android priority: {e}")
+            # Apply Android-specific process priority
+            if kivy_platform == 'android':
+                try:
+                    from jnius import autoclass
+                    Process = autoclass('android.os.Process')
+                    Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+                    Logger.info("Set Android thread priority to URGENT_DISPLAY")
+                except Exception as e:
+                    Logger.warning(f"Could not set Android priority: {e}")
 
-            # Otherwise, configure for a PC platform
-            else:
-                Logger.info(f"PC platform detected: {kivy_platform}. Using standard settings.")
-                self.is_mobile = False
-                self.get_time = time.time  # Use standard timer
-                self.log_dir = os.path.join(os.getcwd(), "logs")
+        else:
+            Logger.info(f"PC platform detected: {kivy_platform}")
+            self.is_mobile = False
+            self.log_dir = os.path.join(os.getcwd(), "logs")
 
     def setup_ui(self):
-        """Setup stable UI with touch support"""
+        """Create all UI elements"""
         self.layout = TouchableFloatLayout()
 
-        # Core background from v2.2
+        # Gray background
         with self.layout.canvas.before:
             Color(119/255, 119/255, 119/255)
             self.rect = Rectangle(size=Window.size, pos=(0, 0))
 
+        # Main stimulus image
         self.background_image = KivyImage(
             size_hint=(1, 1),
             pos_hint={'center_x': 0.5, 'center_y': 0.5},
@@ -134,6 +137,7 @@ class EmoScenes(App):
             opacity=0
         )
 
+        # Fixation cross
         self.fixation_cross = KivyImage(
             source="sprites/fixation_cross.png",
             size_hint=(None, None),
@@ -147,11 +151,10 @@ class EmoScenes(App):
         # Define the square brightness values
         square_values = [0, 63, 126, 189, 255]
 
-        # Create squares dictionary and individual attributes iteratively
+        # Create brightness squares dictionary
         self.squares = {}
         for value in square_values:
             square_name = f'square_{value}'
-            # Create the widget
             widget = KivyImage(
                 source=f"sprites/{value}_square.png",
                 size_hint=(None, None),
@@ -162,49 +165,49 @@ class EmoScenes(App):
                 opacity=0
             )
             
-            # Add to dictionary
+            # Add to dictionary and create attribute
             self.squares[square_name] = widget
-            
-            # Create the dynamic attribute (e.g., self.square_255)
             setattr(self, square_name, widget)
         
+        # Connection interruption label
         self.interruption_label = Label(
             text='Connection Interrupted\n\nWaiting for EEG signal...\n\nThe experiment will resume automatically\nwhen connection is restored.',
             font_size='24sp',
             text_size=(Window.width * 0.8, None),
             halign='center',
             valign='middle',
-            color=(1, 1, 1, 1),  # White text
+            color=(1, 1, 1, 1),
             size_hint=(1, 1),
             pos_hint={'center_x': 0.5, 'center_y': 0.5},
             opacity=0
         )
 
-        # Add widgets in stable order
+        # Add widgets to layout
         self.layout.add_widget(self.background_image)
-        
         for square in self.squares.values():
             self.layout.add_widget(square)
-        
         self.layout.add_widget(self.fixation_cross)
         self.layout.add_widget(self.interruption_label)
 
     def setup_logging(self):
-        """Enhanced logging setup that now uses the pre-configured log directory."""
+        """Initialize logging system with POSIX timestamps"""
         os.makedirs(self.log_dir, exist_ok=True)
         
+        # Create log file with timestamp
         timestamp = datetime.now(pytz.timezone("Europe/Berlin")).strftime("%Y%m%d_%H%M%S")
         self.log_file_path = os.path.join(self.log_dir, f"EmoScenes_{timestamp}.txt")
         self.datafilepointer = open(self.log_file_path, "w")
         
+        # Record experiment start time
         experiment_start_time = self.get_time()
         
+        # Write header with experiment information
         header = (
             f"# Experiment Info:\n"
             f"# POSIX_Start: {experiment_start_time:.6f}\n"
             f"# System_Time: {timestamp}\n"
             f"# Platform: {platform.system()}\n"
-            f"# Mobile_Optimizations: {self.is_mobile}\n"
+            f"# Mobile_Platform: {self.is_mobile}\n"
             f"# ISI_Range: {np.min(self.ISIs):.6f} - {np.max(self.ISIs):.6f}\n"
             f"# Images_N: {len(self.preloaded_images)}\n"
             f"# Log_Path: {self.log_file_path}\n"
@@ -222,12 +225,12 @@ class EmoScenes(App):
         self.experiment_start_time = experiment_start_time
 
     def load_and_categorize_stimulus_files(self):
-        """Load stimuli files and organize by category"""
-        # Initialize category dictionary
+        """Load and categorize all stimulus files"""
+        # Initialize category lists
         for category in self.stimuli['categories']:
             self.stimuli['files_per_category'][category] = []
         
-        # Check if stimuli folder exists
+        # Check stimuli folder exists
         if not os.path.exists(self.stimuli['folder']):
             Logger.error(f"Stimuli folder not found: {self.stimuli['folder']}")
             return
@@ -236,7 +239,7 @@ class EmoScenes(App):
         all_files = os.listdir(self.stimuli['folder'])
         self.stimuli['all_files'] = [f for f in all_files if f.endswith('.jpg')]
         
-        # Categorize files
+        # Categorize files based on filename
         for file in self.stimuli['all_files']:
             categorized = False
             for category in self.stimuli['categories']:
@@ -248,16 +251,16 @@ class EmoScenes(App):
             if not categorized:
                 Logger.warning(f"File {file} could not be categorized")
         
-        # Log loaded stimuli
+        # Log loaded stimuli counts
         for category in self.stimuli['categories']:
             count = len(self.stimuli['files_per_category'][category])
             Logger.info(f"Loaded {count} stimuli for category: {category}")
 
     def create_randomized_stimulus_sequence(self):
-        """Create a large sequence of randomized blocks, each unique"""
+        """Create randomized sequence of stimulus blocks"""
         self.stimuli['sequence'] = []
         
-        # Create multiple unique randomized blocks
+        # Create 400 unique randomized blocks
         for _ in range(400):
             block_stimuli = []
             
@@ -273,18 +276,19 @@ class EmoScenes(App):
                     Logger.warning(f"Category {category} has only {len(available)} stimuli, needed {needed}")
                     block_stimuli.extend(available)
             
-            # Shuffle this specific block
+            # Shuffle this block
             random.shuffle(block_stimuli)
             
-            # Add this unique block to the sequence
+            # Add to sequence
             self.stimuli['sequence'].extend(block_stimuli)
         
         Logger.info(f"Created stimulus sequence with {len(self.stimuli['sequence'])} total stimuli")
 
     def preload_images(self):
-        """Stable image preloading"""
+        """Preload all images into memory"""
         self.preloaded_images = {}
         
+        # Load instruction image
         instruction_path = os.path.join(os.path.dirname(__file__), "instructionsDE", "Instruktion1.jpg")
         if os.path.exists(instruction_path):
             self.preloaded_images["instruction1"] = KivyImage(
@@ -293,6 +297,7 @@ class EmoScenes(App):
                 keep_ratio=False
             )
         
+        # Load all stimulus images
         for stim_file in set(self.stimuli['sequence']):
             image_path = os.path.join(self.stimuli['folder'], stim_file)
             if os.path.exists(image_path):
@@ -310,14 +315,14 @@ class EmoScenes(App):
         return 'neutral'
 
     def get_square_for_category(self, category):
-        """Get the appropriate square widget for a given category"""
+        """Get the brightness square widget for a category"""
         square_name = self.category_to_square.get(category)
         return self.squares.get(square_name)
                 
     def handle_experiment_navigation(self):
-        """Touch-based experiment flow control"""
+        """Handle touch events for experiment flow"""
         if self.connection_lost_screen_active:
-            # Do nothing during interruption - wait for automatic resume
+            # Ignore touches during connection interruption
             return
         elif self.in_instruction_phase:
             self.start_experiment()
@@ -325,7 +330,7 @@ class EmoScenes(App):
             self.end_experiment()
 
     def monitor_eeg_connection(self, *args):
-        """Check OSC connection status and pause/resume as needed"""
+        """Check EEG connection status and pause/resume as needed"""
         is_connected = osc_receiver.is_connected()
         
         if not is_connected and not self.paused:
@@ -336,7 +341,7 @@ class EmoScenes(App):
             self.resume_experiment()
 
     def pause_experiment(self):
-        """Pause the experiment due to lost connection"""
+        """Pause experiment due to lost EEG connection"""
         if self.paused:
             return
             
@@ -348,16 +353,13 @@ class EmoScenes(App):
             self.next_trial_scheduled.cancel()
             self.next_trial_scheduled = None
         
-        # Cancel mobile frame counter if active
-        if self.is_mobile and hasattr(self, 'mobile_timing_event'):
-            self.mobile_timing_event.cancel()
-        
-        # Hide all experiment elements and show interruption screen
+        # Hide all experiment elements
         self.background_image.opacity = 0
-        # Hide all squares
         for square in self.squares.values():
             square.opacity = 0
         self.fixation_cross.opacity = 0
+        
+        # Show interruption screen
         self.interruption_label.opacity = 1
         self.connection_lost_screen_active = True
         self.stimulus_currently_displayed = False
@@ -371,7 +373,7 @@ class EmoScenes(App):
         Logger.warning("EEG connection lost - experiment paused")
 
     def resume_experiment(self):
-        """Resume the experiment after connection restored"""
+        """Resume experiment after EEG connection restored"""
         if not self.paused:
             return
             
@@ -379,7 +381,7 @@ class EmoScenes(App):
         self.paused = False
         self.connection_lost_screen_active = False
         
-        # Hide interruption screen and show fixation cross
+        # Hide interruption screen and show fixation
         self.interruption_label.opacity = 0
         self.fixation_cross.opacity = 1
         
@@ -390,26 +392,23 @@ class EmoScenes(App):
         
         Logger.info(f"EEG connection restored - resuming after {pause_duration:.2f}s pause")
         
-        # Resume with next trial if not currently in a trial
+        # Resume with next trial after short delay
         if not self.stimulus_currently_displayed and self.current_trial <= len(self.stimuli['sequence']):
-            # Use a short delay before resuming
             self.next_trial_scheduled = Clock.schedule_once(self.prepare_trial, 0.5)
 
     def prepare_trial(self, dt):
-        """Prepare trial and schedule stimulus display"""
-        
+        """Prepare and display stimulus for current trial"""
+        # Check connection status
         self.monitor_eeg_connection()
         
-        # Don't start trial if paused
-        if self.paused:
-            return
-            
-        if self.stimulus_currently_displayed:
+        # Don't start if paused or already displaying
+        if self.paused or self.stimulus_currently_displayed:
             return
                 
         self.stimulus_currently_displayed = True
-        self.next_trial_scheduled = None  # Clear scheduled reference
+        self.next_trial_scheduled = None
 
+        # Load current stimulus
         current_stim = self.stimuli['sequence'][self.current_trial - 1]
         if current_stim in self.preloaded_images:
             self.background_image.texture = self.preloaded_images[current_stim].texture
@@ -417,67 +416,55 @@ class EmoScenes(App):
             Logger.error(f"Image not preloaded: {current_stim}")
             return
 
-        # Determine which square to use based on stimulus category
+        # Get appropriate brightness square
         category = self.get_stimulus_category(current_stim)
         self.current_square = self.get_square_for_category(category)
         
         def display_stimulus(dt):
-            # Final check before showing stimulus
+            # Final check before display
             if self.paused:
                 self.stimulus_currently_displayed = False
                 return
                 
+            # Show stimulus and square
             self.background_image.opacity = 1
             self.current_square.opacity = 1
             self.current_square.pos = (Window.width - self.current_square.width, 0)
             self.current_stim_on_time = self.get_time()
             
-            if self.is_mobile:
-                # Mobile: Use frame-counting for precise 600ms
-                # This accounts for dynamic refresh rate changes
-                self.stimulus_frames = 0
-                self.target_duration_ns = int(self.stim_duration * 1e9)  # nanoseconds
-                self.stimulus_start_ns = int(self.current_stim_on_time * 1e9)
-                
-                def mobile_frame_counter(dt):
-                    current_ns = int(self.get_time() * 1e9)
-                    elapsed_ns = current_ns - self.stimulus_start_ns
-                    
-                    if elapsed_ns >= self.target_duration_ns:
-                        self.complete_trial(dt)
-                        return False  # Stop callback
-                    return True  # Continue
-                
-                self.mobile_timing_event = Clock.schedule_interval(mobile_frame_counter, 0)
-            else:
-                # PC testing: Simple timer
-                Clock.schedule_once(self.complete_trial, self.stim_duration)
+            # Schedule stimulus end
+            Clock.schedule_once(self.complete_trial, self.stim_duration)
             
             self.monitor_eeg_connection()
         
+        # Display stimulus on next frame
         Clock.schedule_once(display_stimulus, 0)
 
     def complete_trial(self, dt):
         """Hide stimulus and schedule next trial"""
-        
+        # Check connection status
         self.monitor_eeg_connection()
         
         if self.paused:
             return
         
+        # Record stimulus off time and log
         self.current_stim_off_time = self.get_time()
         self.log_trial_data()
         
+        # Hide stimulus and square
         self.background_image.opacity = 0
         self.current_square.opacity = 0
         
         self.last_stim_off_time = self.current_stim_off_time
         self.stimulus_currently_displayed = False
         
+        # Check if experiment complete
         if self.current_trial == len(self.stimuli['sequence']):
             self.fixation_cross.opacity = 0
             Clock.schedule_once(lambda dt: self.end_experiment(), 0)
         else:
+            # Calculate next ISI with drift compensation
             next_isi = self.ISIs[self.current_trial]
             if self.last_stim_off_time and self.current_stim_on_time:
                 actual_duration = self.current_stim_off_time - self.current_stim_on_time
@@ -488,22 +475,25 @@ class EmoScenes(App):
                 
             self.current_trial += 1
             
+            # Schedule next trial
             self.next_trial_scheduled = Clock.schedule_once(self.prepare_trial, adjusted_isi)
 
     def on_window_resize(self, window, width, height):
-        """Stable window resizing"""
+        """Handle window resize events"""
         self.rect.size = (width, height)
         self.fixation_cross.size = (width * 0.05, height * 0.05)
         self.background_image.size = (width, height)
-        # Resize all squares
+        # Update square positions
         for square in self.squares.values():
             square.pos = (width - square.width, 0)
         self.interruption_label.text_size = (width * 0.8, None)
 
     def build(self):
+        """Build the app UI"""
         return self.layout
     
     def show_instructions(self):
+        """Display instruction screen"""
         self.showing_instructions = True
         self.background_image.opacity = 1
         if "instruction1" in self.preloaded_images:
@@ -513,22 +503,25 @@ class EmoScenes(App):
             self.background_image.reload()
 
     def start_experiment(self):
-        """Initial experiment start after first touch"""
+        """Start the experiment after instruction phase"""
         self.in_instruction_phase = False
         self.fixation_cross.opacity = 1
         
-        # Start connection monitoring
+        # Start connection monitoring (125Hz check rate)
         self.connection_check_event = Clock.schedule_interval(self.monitor_eeg_connection, 0.008)
         
+        # Schedule first trial
         Clock.schedule_once(self.prepare_trial, self.ISIs[0])
         Logger.info(f"Experiment started, first ISI: {self.ISIs[0]:.6f}")
 
     def log_trial_data(self):
-        
+        """Log trial data to file"""
+        # Skip logging if connection lost
         if not osc_receiver.is_connected():
             Logger.warning(f"Skipping log for trial {self.current_trial} - connection lost")
             return
         
+        # Calculate timing metrics
         now = self.get_time()
         stim_on = self.current_stim_on_time
         stim_off = self.current_stim_off_time
@@ -544,6 +537,7 @@ class EmoScenes(App):
         
         block_trial = f"t{self.current_trial:03d}"
         
+        # Write log entry
         log_entry = (f"{now:.6f},"               # Timestamp
                     f"{block_trial},"            # Trial
                     f"{stim_file},"              # StimFile
@@ -558,6 +552,7 @@ class EmoScenes(App):
         self.datafilepointer.flush()
 
     def end_experiment(self):
+        """Clean up and end the experiment"""
         Logger.info("Experiment ending")
         
         # Stop connection monitoring
@@ -567,17 +562,22 @@ class EmoScenes(App):
         # Stop OSC receiver
         osc_receiver.stop()
         
+        # Close log file
         if hasattr(self, 'datafilepointer'):
             self.datafilepointer.close()
+        
+        # Exit app
         self.stop()
 
     def on_start(self):
+        """Called when app starts"""
         Window.fullscreen = "auto"
+        # Hide all elements initially
         self.background_image.opacity = 0
         self.fixation_cross.opacity = 0
-        # Hide all squares initially
         for square in self.squares.values():
             square.opacity = 0
+        # Show instructions
         self.show_instructions()
 
 if __name__ == "__main__":
