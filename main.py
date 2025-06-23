@@ -33,7 +33,6 @@ class TouchableFloatLayout(FloatLayout):
 class EmoScenes(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        
         self.initialize_variables()
         self.setup_platform_specifics()
         self.setup_ui()
@@ -94,7 +93,8 @@ class EmoScenes(App):
             if kivy_platform in ('android', 'ios'):
                 Logger.info(f"Mobile platform detected: {kivy_platform}. Applying optimizations.")
                 self.is_mobile = True
-                self.get_time = time.perf_counter  # Use high-precision timer
+                # Keep using time.time for POSIX timestamps on all platforms
+                self.get_time = time.time
                 
                 # Set the log directory for Android
                 # Ensure you have permissions in buildozer.spec: android.permissions = READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE
@@ -144,64 +144,29 @@ class EmoScenes(App):
             opacity=0
         )
 
-        self.square_255 = KivyImage(
-            source="sprites/255_square.png",
-            size_hint=(None, None),
-            size=(110, 110),
-            pos=(Window.width - 110, 0),
-            allow_stretch=False,
-            keep_ratio=True,
-            opacity=0
-        )
-        
-        self.square_228 = KivyImage(
-            source="sprites/228_square.png",
-            size_hint=(None, None),
-            size=(110, 110),
-            pos=(Window.width - 110, 0),
-            allow_stretch=False,
-            keep_ratio=True,
-            opacity=0
-        )
-        
-        self.square_201 = KivyImage(
-            source="sprites/201_square.png",
-            size_hint=(None, None),
-            size=(110, 110),
-            pos=(Window.width - 110, 0),
-            allow_stretch=False,
-            keep_ratio=True,
-            opacity=0
-        )
-        
-        self.square_174 = KivyImage(
-            source="sprites/174_square.png",
-            size_hint=(None, None),
-            size=(110, 110),
-            pos=(Window.width - 110, 0),
-            allow_stretch=False,
-            keep_ratio=True,
-            opacity=0
-        )
-        
-        self.square_153 = KivyImage(
-            source="sprites/153_square.png",
-            size_hint=(None, None),
-            size=(110, 110),
-            pos=(Window.width - 110, 0),
-            allow_stretch=False,
-            keep_ratio=True,
-            opacity=0
-        )
-        
-        # Store squares in a dictionary for easy access
-        self.squares = {
-            'square_255': self.square_255,
-            'square_228': self.square_228,
-            'square_201': self.square_201,
-            'square_174': self.square_174,
-            'square_153': self.square_153
-        }
+        # Define the square brightness values
+        square_values = [0, 63, 126, 189, 255]
+
+        # Create squares dictionary and individual attributes iteratively
+        self.squares = {}
+        for value in square_values:
+            square_name = f'square_{value}'
+            # Create the widget
+            widget = KivyImage(
+                source=f"sprites/{value}_square.png",
+                size_hint=(None, None),
+                size=(110, 110),
+                pos=(Window.width - 110, 0),
+                allow_stretch=False,
+                keep_ratio=True,
+                opacity=0
+            )
+            
+            # Add to dictionary
+            self.squares[square_name] = widget
+            
+            # Create the dynamic attribute (e.g., self.square_255)
+            setattr(self, square_name, widget)
         
         self.interruption_label = Label(
             text='Connection Interrupted\n\nWaiting for EEG signal...\n\nThe experiment will resume automatically\nwhen connection is restored.',
@@ -217,11 +182,10 @@ class EmoScenes(App):
 
         # Add widgets in stable order
         self.layout.add_widget(self.background_image)
-        self.layout.add_widget(self.square_255)
-        self.layout.add_widget(self.square_228)
-        self.layout.add_widget(self.square_201)
-        self.layout.add_widget(self.square_174)
-        self.layout.add_widget(self.square_153)
+        
+        for square in self.squares.values():
+            self.layout.add_widget(square)
+        
         self.layout.add_widget(self.fixation_cross)
         self.layout.add_widget(self.interruption_label)
 
@@ -343,12 +307,12 @@ class EmoScenes(App):
         for category in self.stimuli['categories']:
             if category in stimulus_file.lower():
                 return category
-        return 'neutral'  # Default to neutral if category not found
+        return 'neutral'
 
     def get_square_for_category(self, category):
         """Get the appropriate square widget for a given category"""
-        square_name = self.category_to_square.get(category, 'square_201')  # Default to neutral
-        return self.squares.get(square_name, self.square_201)
+        square_name = self.category_to_square.get(category)
+        return self.squares.get(square_name)
                 
     def handle_experiment_navigation(self):
         """Touch-based experiment flow control"""
