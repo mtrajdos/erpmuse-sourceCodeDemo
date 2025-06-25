@@ -49,6 +49,9 @@ class EmoScenes(App):
         # DEBUG: Timing diagnostics
         self.timing_diagnostics = []
         self.clock_test_results = []
+        
+        # Attribute for the refresh rate measurement event
+        self._refresh_rate_event = None
 
     def initialize_variables(self):
         """Initialize all experiment variables and load stimuli"""
@@ -97,7 +100,7 @@ class EmoScenes(App):
         osc_receiver.start()
 
     def setup_platform_specifics(self):
-        """Configure platform-specific settings"""
+        """Configure platform-specific settings and get an initial refresh rate estimate."""
         # Always use POSIX timestamps
         self.get_time = time.time
         
@@ -119,35 +122,40 @@ class EmoScenes(App):
                 except Exception as e:
                     Logger.warning(f"Could not set Android priority: {e}")
                     
+                # Try to set the preferred display mode to the highest available.
+                # The actual rate will be confirmed via dynamic measurement later.
                 try:
                     PythonActivity = autoclass('org.kivy.android.PythonActivity')
                     activity = PythonActivity.mActivity
                     
-                    # Get the display
                     display = activity.getWindowManager().getDefaultDisplay()
                     
-                    # Get supported modes and set preferred mode
                     modes = display.getSupportedModes()
                     if modes:
-                        # Find 90Hz mode or highest available
+                        # Find mode with highest refresh rate
                         best_mode = max(modes, key=lambda m: m.getRefreshRate())
                         window = activity.getWindow()
                         attrs = window.getAttributes()
                         attrs.preferredDisplayModeId = best_mode.getModeId()
                         window.setAttributes(attrs)
-                        Logger.info(f"Set preferred display mode: {best_mode.getRefreshRate()}Hz")
+                        Logger.info(f"Requested preferred display mode: {best_mode.getRefreshRate()}Hz")
                         
-                        # Store refresh rate for diagnostics
+                        # Store initial estimate of refresh rate for logging
                         self.display_refresh_rate = best_mode.getRefreshRate()
+                    else:
+                        # If modes can't be read, set a temporary default.
+                        self.display_refresh_rate = 120.0
                 except Exception as e:
-                    Logger.warning(f"Could not set display mode: {e}")
-                    self.display_refresh_rate = 120.0  # Assume 120Hz
+                    Logger.warning(f"Could not set preferred display mode: {e}. Will rely on measurement.")
+                    # Set a temporary default. The measurement will provide the real value.
+                    self.display_refresh_rate = 120.0
 
         else:
             Logger.info(f"PC platform detected: {kivy_platform}")
             self.is_mobile = False
             self.log_dir = os.path.join(os.getcwd(), "logs")
-            self.display_refresh_rate = 60.0  # Assume 60Hz for PC
+            # Set a temporary default for PC. The measurement will provide the real value.
+            self.display_refresh_rate = 60.0
 
     def setup_ui(self):
         """Create all UI elements"""
@@ -238,7 +246,7 @@ class EmoScenes(App):
             f"# System_Time: {timestamp}\n"
             f"# Platform: {platform.system()}\n"
             f"# Mobile_Platform: {self.is_mobile}\n"
-            f"# Display_Refresh_Rate: {self.display_refresh_rate}Hz\n"
+            f"# Display_Refresh_Rate_Initial: {self.display_refresh_rate}Hz (Note: This is the initial estimate before measurement)\n"
             f"# ISI_Range: {np.min(self.ISIs):.6f} - {np.max(self.ISIs):.6f}\n"
             f"# Images_N: {len(self.preloaded_images)}\n"
             f"# Log_Path: {self.log_file_path}\n"
@@ -254,6 +262,53 @@ class EmoScenes(App):
         self.datafilepointer.flush()
         
         self.experiment_start_time = experiment_start_time
+
+    # --- START: NEW METHODS FOR DYNAMIC REFRESH RATE DETECTION ---
+
+    def _update_frame_time(self, dt):
+        """Internal callback for refresh rate measurement, called every frame."""
+        # Collect 120 valid frame time samples (dt > 0)
+        if len(self._frame_times) < 120 and dt > 0:
+            self._frame_times.append(dt)
+        else:
+            # Once enough samples are collected, calculate the rate
+            if self._refresh_rate_event:
+                self._refresh_rate_event.cancel()
+                self._refresh_rate_event = None
+
+            # To increase accuracy, discard first few frames which might be unstable
+            stable_frame_times = self._frame_times[10:]
+            if stable_frame_times:
+                avg_dt = sum(stable_frame_times) / len(stable_frame_times)
+                self.display_refresh_rate = 1.0 / avg_dt
+                Logger.info(f"Dynamic refresh rate measured: {self.display_refresh_rate:.2f} Hz")
+            else:
+                Logger.warning("Refresh rate measurement failed. Keeping initial value.")
+            
+            # Log the final measured value for record-keeping
+            self.log_measured_refresh_rate()
+
+            # Proceed with the application startup
+            self.show_instructions()
+
+    def measure_and_start(self):
+        """Starts the refresh rate measurement process."""
+        Logger.info("Starting dynamic refresh rate measurement...")
+        self._frame_times = []
+        # Schedule the measurement function to run on each frame
+        self._refresh_rate_event = Clock.schedule_interval(self._update_frame_time, 0)
+    
+    def log_measured_refresh_rate(self):
+        """Writes the accurately measured refresh rate to the log file."""
+        if hasattr(self, 'datafilepointer') and self.datafilepointer:
+            log_entry = (f"# MEASUREMENT,"
+                         f"{self.get_time():.6f},"
+                         f"Measured_Refresh_Rate,"
+                         f"{self.display_refresh_rate:.4f}\n")
+            self.datafilepointer.write(log_entry)
+            self.datafilepointer.flush()
+
+    # --- END: NEW METHODS FOR DYNAMIC REFRESH RATE DETECTION ---
 
     def load_and_categorize_stimulus_files(self):
         """Load and categorize all stimulus files"""
@@ -364,8 +419,8 @@ class EmoScenes(App):
                 errors = []
                 for result in self.clock_test_results:
                     Logger.info(f"Requested: {result['requested']:.3f}s, "
-                              f"Actual: {result['actual']:.3f}s, "
-                              f"Error: {result['error']:.1f}ms")
+                                f"Actual: {result['actual']:.3f}s, "
+                                f"Error: {result['error']:.1f}ms")
                     errors.append(result['error'])
                 
                 mean_error = np.mean(errors)
@@ -408,7 +463,6 @@ class EmoScenes(App):
         else:
             return
         
-
     def monitor_eeg_connection(self, *args):
         """Check EEG connection status and pause/resume as needed"""
         is_connected = osc_receiver.is_connected()
@@ -562,8 +616,8 @@ class EmoScenes(App):
         
         # DEBUG: Log timing info
         Logger.info(f"Trial {self.current_trial}: "
-                   f"Schedule->Callback: {schedule_to_callback:.3f}s (error: {schedule_error:.1f}ms), "
-                   f"Display duration: {actual_display_duration:.3f}s (error: {display_error:.1f}ms)")
+                    f"Schedule->Callback: {schedule_to_callback:.3f}s (error: {schedule_error:.1f}ms), "
+                    f"Display duration: {actual_display_duration:.3f}s (error: {display_error:.1f}ms)")
         
         # Log trial data
         self.log_trial_data()
@@ -583,13 +637,13 @@ class EmoScenes(App):
             
             Logger.info(f"=== Last 10 trials summary ===")
             Logger.info(f"Schedule errors: mean={np.mean(schedule_errors):.1f}ms, "
-                       f"std={np.std(schedule_errors):.1f}ms, "
-                       f"min={np.min(schedule_errors):.1f}ms, "
-                       f"max={np.max(schedule_errors):.1f}ms")
+                        f"std={np.std(schedule_errors):.1f}ms, "
+                        f"min={np.min(schedule_errors):.1f}ms, "
+                        f"max={np.max(schedule_errors):.1f}ms")
             Logger.info(f"Display errors: mean={np.mean(display_errors):.1f}ms, "
-                       f"std={np.std(display_errors):.1f}ms, "
-                       f"min={np.min(display_errors):.1f}ms, "
-                       f"max={np.max(display_errors):.1f}ms")
+                        f"std={np.std(display_errors):.1f}ms, "
+                        f"min={np.min(display_errors):.1f}ms, "
+                        f"max={np.max(display_errors):.1f}ms")
         
         # Check if experiment complete
         if self.current_trial == len(self.stimuli['sequence']):
@@ -676,15 +730,15 @@ class EmoScenes(App):
         
         # Write log entry
         log_entry = (f"{now:.6f},"               # Timestamp
-                    f"{block_trial},"            # Trial
-                    f"{stim_file},"              # StimFile
-                    f"{stim_on:.6f},"            # StimON
-                    f"{stim_off:.6f},"           # StimOFF
-                    f"{actual_stim_duration:.6f}," # Stim_Duration
-                    f"{target_isi:.6f},"         # Target_ISI
-                    f"{actual_isi:.6f},"         # Actual_ISI
-                    f"{isi_error:.6f}\n")        # ISI_Error
-                    
+                     f"{block_trial},"             # Trial
+                     f"{stim_file},"               # StimFile
+                     f"{stim_on:.6f},"             # StimON
+                     f"{stim_off:.6f},"            # StimOFF
+                     f"{actual_stim_duration:.6f},"# Stim_Duration
+                     f"{target_isi:.6f},"          # Target_ISI
+                     f"{actual_isi:.6f},"          # Actual_ISI
+                     f"{isi_error:.6f}\n")         # ISI_Error
+                     
         self.datafilepointer.write(log_entry)
         self.datafilepointer.flush()
 
@@ -700,9 +754,9 @@ class EmoScenes(App):
             
             Logger.info(f"Total trials analyzed: {len(self.timing_diagnostics)}")
             Logger.info(f"Schedule timing - Mean error: {np.mean(all_schedule_errors):.1f}ms, "
-                       f"Std: {np.std(all_schedule_errors):.1f}ms")
+                        f"Std: {np.std(all_schedule_errors):.1f}ms")
             Logger.info(f"Display timing - Mean error: {np.mean(all_display_errors):.1f}ms, "
-                       f"Std: {np.std(all_display_errors):.1f}ms")
+                        f"Std: {np.std(all_display_errors):.1f}ms")
             Logger.info(f"Worst schedule error: {np.min(all_schedule_errors):.1f}ms")
             Logger.info(f"Worst display error: {np.min(all_display_errors):.1f}ms")
         
@@ -723,15 +777,17 @@ class EmoScenes(App):
         self.stop()
 
     def on_start(self):
-        """Called when app starts"""
+        """Called when app starts. Initiates refresh rate measurement."""
         Window.fullscreen = "auto"
         # Hide all elements initially
         self.background_image.opacity = 0
         self.fixation_cross.opacity = 0
         for square in self.squares.values():
             square.opacity = 0
-        # Show instructions
-        self.show_instructions()
+        
+        # Instead of showing instructions directly, start the measurement process.
+        # The measurement callback will then call show_instructions.
+        self.measure_and_start()
 
 if __name__ == "__main__":
     try:
