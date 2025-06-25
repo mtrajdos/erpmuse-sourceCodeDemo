@@ -45,6 +45,10 @@ class EmoScenes(App):
         self.paused = False
         self.connection_check_event = None
         self.pause_start_time = None
+        
+        # DEBUG: Timing diagnostics
+        self.timing_diagnostics = []
+        self.clock_test_results = []
 
     def initialize_variables(self):
         """Initialize all experiment variables and load stimuli"""
@@ -132,13 +136,18 @@ class EmoScenes(App):
                         attrs.preferredDisplayModeId = best_mode.getModeId()
                         window.setAttributes(attrs)
                         Logger.info(f"Set preferred display mode: {best_mode.getRefreshRate()}Hz")
+                        
+                        # Store refresh rate for diagnostics
+                        self.display_refresh_rate = best_mode.getRefreshRate()
                 except Exception as e:
                     Logger.warning(f"Could not set display mode: {e}")
+                    self.display_refresh_rate = 90.0  # Assume 90Hz
 
         else:
             Logger.info(f"PC platform detected: {kivy_platform}")
             self.is_mobile = False
             self.log_dir = os.path.join(os.getcwd(), "logs")
+            self.display_refresh_rate = 60.0  # Assume 60Hz for PC
 
     def setup_ui(self):
         """Create all UI elements"""
@@ -229,6 +238,7 @@ class EmoScenes(App):
             f"# System_Time: {timestamp}\n"
             f"# Platform: {platform.system()}\n"
             f"# Mobile_Platform: {self.is_mobile}\n"
+            f"# Display_Refresh_Rate: {self.display_refresh_rate}Hz\n"
             f"# ISI_Range: {np.min(self.ISIs):.6f} - {np.max(self.ISIs):.6f}\n"
             f"# Images_N: {len(self.preloaded_images)}\n"
             f"# Log_Path: {self.log_file_path}\n"
@@ -339,6 +349,52 @@ class EmoScenes(App):
         """Get the brightness square widget for a category"""
         square_name = self.category_to_square.get(category)
         return self.squares.get(square_name)
+    
+    def test_clock_accuracy(self):
+        """Test Clock.schedule_once accuracy with various durations"""
+        Logger.info("=== Starting Clock accuracy test ===")
+        test_durations = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+        self.clock_test_index = 0
+        self.clock_test_durations = test_durations
+        
+        def run_next_test(dt=None):
+            if self.clock_test_index >= len(self.clock_test_durations):
+                # Tests complete, analyze results
+                Logger.info("=== Clock test results ===")
+                errors = []
+                for result in self.clock_test_results:
+                    Logger.info(f"Requested: {result['requested']:.3f}s, "
+                              f"Actual: {result['actual']:.3f}s, "
+                              f"Error: {result['error']:.1f}ms")
+                    errors.append(result['error'])
+                
+                mean_error = np.mean(errors)
+                std_error = np.std(errors)
+                Logger.info(f"Mean error: {mean_error:.1f}ms, Std: {std_error:.1f}ms")
+                Logger.info("=== Clock test complete ===")
+                return
+            
+            duration = self.clock_test_durations[self.clock_test_index]
+            start_time = self.get_time()
+            
+            def end_test(dt):
+                end_time = self.get_time()
+                actual = end_time - start_time
+                error = (actual - duration) * 1000
+                
+                self.clock_test_results.append({
+                    'requested': duration,
+                    'actual': actual,
+                    'error': error
+                })
+                
+                self.clock_test_index += 1
+                Clock.schedule_once(run_next_test, 0.1)  # Small delay between tests
+            
+            Clock.schedule_once(end_test, duration)
+        
+        # Start first test
+        run_next_test()
                 
     def handle_touch(self, touch):
         """Handle single touch events for starting the experiment with a single tap and ending it with a double tap"""
@@ -456,8 +512,15 @@ class EmoScenes(App):
             self.current_square.pos = (Window.width - self.current_square.width, 0)
             self.current_stim_on_time = self.get_time()
             
+            # DEBUG: Store timing info
+            self.schedule_time = self.get_time()
+            self.requested_duration = self.stim_duration
+            
             # Schedule stimulus end
             Clock.schedule_once(self.complete_trial, self.stim_duration)
+            
+            # DEBUG: Log scheduling
+            Logger.info(f"Trial {self.current_trial}: Scheduled for {self.stim_duration}s at {self.schedule_time:.6f}")
             
             self.monitor_eeg_connection()
         
@@ -466,6 +529,11 @@ class EmoScenes(App):
 
     def complete_trial(self, dt):
         """Hide stimulus and schedule next trial"""
+        # DEBUG: Calculate timing immediately
+        callback_time = self.get_time()
+        schedule_to_callback = callback_time - self.schedule_time
+        schedule_error = (schedule_to_callback - self.requested_duration) * 1000
+        
         # Check connection status
         self.monitor_eeg_connection()
         
@@ -474,6 +542,30 @@ class EmoScenes(App):
         
         # Record stimulus off time and log
         self.current_stim_off_time = self.get_time()
+        
+        # DEBUG: Calculate actual display duration
+        actual_display_duration = self.current_stim_off_time - self.current_stim_on_time
+        display_error = (actual_display_duration - self.stim_duration) * 1000
+        
+        # DEBUG: Store diagnostic info
+        diagnostic = {
+            'trial': self.current_trial,
+            'requested_duration': self.requested_duration,
+            'schedule_to_callback': schedule_to_callback,
+            'schedule_error_ms': schedule_error,
+            'actual_display': actual_display_duration,
+            'display_error_ms': display_error,
+            'stim_on': self.current_stim_on_time,
+            'stim_off': self.current_stim_off_time
+        }
+        self.timing_diagnostics.append(diagnostic)
+        
+        # DEBUG: Log timing info
+        Logger.info(f"Trial {self.current_trial}: "
+                   f"Schedule->Callback: {schedule_to_callback:.3f}s (error: {schedule_error:.1f}ms), "
+                   f"Display duration: {actual_display_duration:.3f}s (error: {display_error:.1f}ms)")
+        
+        # Log trial data
         self.log_trial_data()
         
         # Hide stimulus and square
@@ -482,6 +574,22 @@ class EmoScenes(App):
         
         self.last_stim_off_time = self.current_stim_off_time
         self.stimulus_currently_displayed = False
+        
+        # DEBUG: Print summary every 10 trials
+        if self.current_trial % 10 == 0:
+            recent_diagnostics = self.timing_diagnostics[-10:]
+            schedule_errors = [d['schedule_error_ms'] for d in recent_diagnostics]
+            display_errors = [d['display_error_ms'] for d in recent_diagnostics]
+            
+            Logger.info(f"=== Last 10 trials summary ===")
+            Logger.info(f"Schedule errors: mean={np.mean(schedule_errors):.1f}ms, "
+                       f"std={np.std(schedule_errors):.1f}ms, "
+                       f"min={np.min(schedule_errors):.1f}ms, "
+                       f"max={np.max(schedule_errors):.1f}ms")
+            Logger.info(f"Display errors: mean={np.mean(display_errors):.1f}ms, "
+                       f"std={np.std(display_errors):.1f}ms, "
+                       f"min={np.min(display_errors):.1f}ms, "
+                       f"max={np.max(display_errors):.1f}ms")
         
         # Check if experiment complete
         if self.current_trial == len(self.stimuli['sequence']):
@@ -532,12 +640,16 @@ class EmoScenes(App):
         self.in_experiment_phase = True
         self.fixation_cross.opacity = 1
         
+        # DEBUG: Run clock accuracy test first
+        Logger.info("Running clock accuracy test before experiment...")
+        self.test_clock_accuracy()
+        
         # Start connection monitoring (125Hz check rate)
         self.connection_check_event = Clock.schedule_interval(self.monitor_eeg_connection, 0.008)
         
-        # Schedule first trial
-        Clock.schedule_once(self.prepare_trial, self.ISIs[0])
-        Logger.info(f"Experiment started, first ISI: {self.ISIs[0]:.6f}")
+        # Schedule first trial with delay to allow clock test to complete
+        Clock.schedule_once(self.prepare_trial, self.ISIs[0] + 2.0)  # Add 2s for clock test
+        Logger.info(f"Experiment will start after clock test, first ISI: {self.ISIs[0]:.6f}")
 
     def log_trial_data(self):
         """Log trial data to file"""
@@ -579,6 +691,20 @@ class EmoScenes(App):
     def end_experiment(self):
         """Clean up and end the experiment"""
         Logger.info("Experiment ending")
+        
+        # DEBUG: Print final timing summary
+        if self.timing_diagnostics:
+            Logger.info("=== Final timing summary ===")
+            all_schedule_errors = [d['schedule_error_ms'] for d in self.timing_diagnostics]
+            all_display_errors = [d['display_error_ms'] for d in self.timing_diagnostics]
+            
+            Logger.info(f"Total trials analyzed: {len(self.timing_diagnostics)}")
+            Logger.info(f"Schedule timing - Mean error: {np.mean(all_schedule_errors):.1f}ms, "
+                       f"Std: {np.std(all_schedule_errors):.1f}ms")
+            Logger.info(f"Display timing - Mean error: {np.mean(all_display_errors):.1f}ms, "
+                       f"Std: {np.std(all_display_errors):.1f}ms")
+            Logger.info(f"Worst schedule error: {np.min(all_schedule_errors):.1f}ms")
+            Logger.info(f"Worst display error: {np.min(all_display_errors):.1f}ms")
         
         # Stop connection monitoring
         if self.connection_check_event:
