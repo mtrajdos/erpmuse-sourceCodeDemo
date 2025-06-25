@@ -29,7 +29,7 @@ class TouchableFloatLayout(FloatLayout):
     def on_touch_down(self, touch):
         app = App.get_running_app()
         if app:
-            app.handle_experiment_navigation()
+            app.handle_touch(touch)
         return super().on_touch_down(touch)
 
 class EmoScenes(App):
@@ -54,6 +54,7 @@ class EmoScenes(App):
         self.last_stim_off_time = None
         self.current_stim_on_time = None
         self.in_instruction_phase = True
+        self.in_experiment_phase = False
         self.connection_lost_screen_active = False
         
         # Generate random ISIs between 1-3 seconds for 50,000 trials
@@ -113,6 +114,26 @@ class EmoScenes(App):
                     Logger.info("Set Android thread priority to URGENT_DISPLAY")
                 except Exception as e:
                     Logger.warning(f"Could not set Android priority: {e}")
+                    
+                try:
+                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                    activity = PythonActivity.mActivity
+                    
+                    # Get the display
+                    display = activity.getWindowManager().getDefaultDisplay()
+                    
+                    # Get supported modes and set preferred mode
+                    modes = display.getSupportedModes()
+                    if modes:
+                        # Find 90Hz mode or highest available
+                        best_mode = max(modes, key=lambda m: m.getRefreshRate())
+                        window = activity.getWindow()
+                        attrs = window.getAttributes()
+                        attrs.preferredDisplayModeId = best_mode.getModeId()
+                        window.setAttributes(attrs)
+                        Logger.info(f"Set preferred display mode: {best_mode.getRefreshRate()}Hz")
+                except Exception as e:
+                    Logger.warning(f"Could not set display mode: {e}")
 
         else:
             Logger.info(f"PC platform detected: {kivy_platform}")
@@ -319,15 +340,18 @@ class EmoScenes(App):
         square_name = self.category_to_square.get(category)
         return self.squares.get(square_name)
                 
-    def handle_experiment_navigation(self):
-        """Handle touch events for experiment flow"""
+    def handle_touch(self, touch):
+        """Handle single touch events for starting the experiment with a single tap and ending it with a double tap"""
         if self.connection_lost_screen_active:
             # Ignore touches during connection interruption
             return
-        elif self.in_instruction_phase:
+        if touch.is_double_tap == False and self.in_experiment_phase == False:
             self.start_experiment()
-        elif not self.in_instruction_phase:
+        if touch.is_double_tap:
             self.end_experiment()
+        else:
+            return
+        
 
     def monitor_eeg_connection(self, *args):
         """Check EEG connection status and pause/resume as needed"""
@@ -505,6 +529,7 @@ class EmoScenes(App):
     def start_experiment(self):
         """Start the experiment after instruction phase"""
         self.in_instruction_phase = False
+        self.in_experiment_phase = True
         self.fixation_cross.opacity = 1
         
         # Start connection monitoring (125Hz check rate)
@@ -561,6 +586,8 @@ class EmoScenes(App):
         
         # Stop OSC receiver
         osc_receiver.stop()
+        
+        self.in_experiment_phase = False
         
         # Close log file
         if hasattr(self, 'datafilepointer'):
