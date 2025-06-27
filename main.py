@@ -177,6 +177,35 @@ class EmoScenes(App):
             # Set a temporary default for PC. The measurement will provide the real value.
             self.display_refresh_rate = 60.0
 
+    def load_square_images(self):
+        """Dynamically load all brightness square images from sprites folder"""
+        sprites_folder = os.path.join(os.path.dirname(__file__), "sprites")
+        
+        # Find all square image files
+        if not os.path.exists(sprites_folder):
+            Logger.error(f"Sprites folder not found: {sprites_folder}")
+            return []
+        
+        # Get all files matching the pattern "*_square.png"
+        all_files = os.listdir(sprites_folder)
+        square_files = [f for f in all_files if f.endswith('_square.png')]
+        
+        # Extract brightness values from filenames
+        square_values = []
+        for filename in square_files:
+            try:
+                # Extract number from filename like "40_square.png" -> 40
+                value = int(filename.split('_')[0])
+                square_values.append(value)
+            except (ValueError, IndexError):
+                Logger.warning(f"Could not extract brightness value from: {filename}")
+        
+        # Sort values for consistent ordering
+        square_values.sort()
+        Logger.info(f"Found square brightness values: {square_values}")
+        
+        return square_values
+    
     def setup_ui(self):
         """Create all UI elements"""
         self.layout = TouchableFloatLayout()
@@ -218,16 +247,13 @@ class EmoScenes(App):
             keep_ratio=True,
             opacity=0
         )
-
-        # Define the square brightness values
-        square_values = [0, 40, 80, 120, 160, 255]
     
-        # Create brightness squares dictionary
+        # Create brightness squares dictionary using preloaded values
         self.squares = {}
-        for value in square_values:
+        for value in self.square_values:  # Use the values found during preload
             square_name = f'square_{value}'
             widget = KivyImage(
-                source=f"sprites/{value}_square.png",
+                texture=self.preloaded_images[square_name].texture,  # Use preloaded texture
                 size_hint=(None, None),
                 size=(110, 110),
                 pos=(Window.width - 110, 0),
@@ -236,7 +262,6 @@ class EmoScenes(App):
                 opacity=0
             )
             
-            # Add to dictionary and create attribute
             self.squares[square_name] = widget
             setattr(self, square_name, widget)
         
@@ -406,10 +431,37 @@ class EmoScenes(App):
         Logger.info(f"Created stimulus sequence with {len(self.stimuli['sequence'])} total stimuli")
 
     def preload_images(self):
-        """Preload all images into memory"""
+        """Preload all images into memory - both stimuli and UI elements"""
         self.preloaded_images = {}
         
-        # Load all stimulus images
+        def load_squares():
+            """Helper method to dynamically find square brightness values"""
+            sprites_folder = os.path.join(os.path.dirname(__file__), "sprites")
+            
+            if not os.path.exists(sprites_folder):
+                Logger.error(f"Sprites folder not found: {sprites_folder}")
+                return []
+            
+            # Get all files matching the pattern "*_square.png"
+            all_files = os.listdir(sprites_folder)
+            square_files = [f for f in all_files if f.endswith('_square.png')]
+            
+            # Extract brightness values from filenames
+            square_values = []
+            for filename in square_files:
+                try:
+                    # Extract number from filename like "40_square.png" -> 40
+                    value = int(filename.split('_')[0])
+                    square_values.append(value)
+                except (ValueError, IndexError):
+                    Logger.warning(f"Could not extract brightness value from: {filename}")
+            
+            # Sort values for consistent ordering
+            square_values.sort()
+            Logger.info(f"Found square brightness values: {square_values}")
+            return square_values
+        
+        # Load stimulus images
         for stim_file in set(self.stimuli['sequence']):
             image_path = os.path.join(self.stimuli['folder'], stim_file)
             if os.path.exists(image_path):
@@ -417,6 +469,18 @@ class EmoScenes(App):
                     source=image_path,
                     allow_stretch=True,
                     keep_ratio=False
+                )
+        
+        # Load square images
+        self.square_values = load_squares()
+        for value in self.square_values:
+            square_path = os.path.join(os.path.dirname(__file__), "sprites", f"{value}_square.png")
+            if os.path.exists(square_path):
+                square_name = f'square_{value}'
+                self.preloaded_images[square_name] = KivyImage(
+                    source=square_path,
+                    allow_stretch=False,
+                    keep_ratio=True
                 )
 
     def get_stimulus_category(self, stimulus_file):
