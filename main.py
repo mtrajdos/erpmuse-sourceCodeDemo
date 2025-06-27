@@ -16,6 +16,7 @@ import pytz
 import platform
 import time
 import random
+import textwrap
 
 # Window configuration
 Window.borderless = True
@@ -64,6 +65,9 @@ class EmoScenes(App):
         self.in_experiment_phase = False
         self.connection_lost_screen_active = False
         
+        # Language
+        self.lang = 'DE'
+        
         # Generate random ISIs between 1-3 seconds for 50,000 trials
         self.ISIs = np.random.uniform(1.000000, 3.000000, 50000)
         
@@ -84,11 +88,11 @@ class EmoScenes(App):
         
         # Map categories to brightness squares
         self.category_to_square = {
-            'highpos': 'square_126',
-            'lowpos': 'square_126',
-            'neutral': 'square_126',
-            'lowneg': 'square_126',
-            'highneg': 'square_126'
+            'highpos': 'square_255',
+            'lowpos': 'square_255',
+            'neutral': 'square_255',
+            'lowneg': 'square_255',
+            'highneg': 'square_255'
         }
         
         # Load and prepare stimuli
@@ -181,9 +185,22 @@ class EmoScenes(App):
         with self.layout.canvas.before:
             Color(119/255, 119/255, 119/255)
             self.rect = Rectangle(size=Window.size, pos=(0, 0))
+            
+        # Instruction label
+        self.instruction_label = Label(
+            font_size='24sp',
+            text_size=(Window.width * 0.8, None),
+            halign='center',
+            valign='middle',
+            color=(1, 1, 1, 1),
+            size_hint=(1, 1),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5},
+            opacity=0
+        )
 
         # Main stimulus image
         self.background_image = KivyImage(
+            source="sprites/background.png",
             size_hint=(1, 1),
             pos_hint={'center_x': 0.5, 'center_y': 0.5},
             allow_stretch=True,
@@ -203,8 +220,8 @@ class EmoScenes(App):
         )
 
         # Define the square brightness values
-        square_values = [0, 63, 126, 189, 255]
-
+        square_values = [0, 40, 80, 120, 160, 255]
+    
         # Create brightness squares dictionary
         self.squares = {}
         for value in square_values:
@@ -242,6 +259,8 @@ class EmoScenes(App):
             self.layout.add_widget(square)
         self.layout.add_widget(self.fixation_cross)
         self.layout.add_widget(self.interruption_label)
+        self.layout.add_widget(self.instruction_label)
+
 
     def setup_logging(self):
         """Initialize logging system with POSIX timestamps"""
@@ -389,15 +408,6 @@ class EmoScenes(App):
     def preload_images(self):
         """Preload all images into memory"""
         self.preloaded_images = {}
-        
-        # Load instruction image
-        instruction_path = os.path.join(os.path.dirname(__file__), "instructionsDE", "Instruktion1.jpg")
-        if os.path.exists(instruction_path):
-            self.preloaded_images["instruction1"] = KivyImage(
-                source=instruction_path,
-                allow_stretch=True,
-                keep_ratio=False
-            )
         
         # Load all stimulus images
         for stim_file in set(self.stimuli['sequence']):
@@ -696,18 +706,26 @@ class EmoScenes(App):
     
     def show_instructions(self):
         """Display instruction screen"""
-        self.showing_instructions = True
-        self.background_image.opacity = 1
-        if "instruction1" in self.preloaded_images:
-            self.background_image.texture = self.preloaded_images["instruction1"].texture
+        if self.in_instruction_phase:
+            self.showing_instructions = True
+            self.instruction_label.opacity = 1
+            self.instruction_label.align = 'justify'
+            if "DE" in self.lang:
+                self.instruction_label.text = textwrap.fill("Verschiedene Bilder werden auf dem Bildschirm vor Ihnen gezeigt. Bitte betrachten Sie diese aufmerksam. Richten Sie Ihren Blick stets auf den roten Kreuz in der Mitte des Bildschirms und versuchen Sie dabei möglichst still zu sitzen. Wenn Sie Fragen haben, können Sie diese jetzt stellen. Ansonsten tippen Sie irgendwo auf den Bildschirm, wenn Sie startbereit sind.")
+            if "PL" in self.lang:
+                self.instruction_label.text = textwrap.fill("Zostaną Państwu pokazane różne obrazy na ekranie przed Państwem. Proszę uważnie je obserwować. Proszę zawsze patrzeć na czerwony krzyż w centrum ekranu i starać się siedzieć jak najspokojniej. Jeśli mają Państwo pytania, można je zadać teraz. W przeciwnym razie proszę dotknąć ekran w dowolnym miejscu, aby rozpocząć.")
+            else:
+                self.instruction_label.text = textwrap.fill("Various images will be shown to you on the screen in front of you. Please observe these carefully. Keep your gaze always on the red cross in the center of the screen and try to sit as still as possible. If you have questions, you can ask them now. Otherwise, please tap anywhere on the screen to start.")
+                self.background_image.reload()
         else:
-            self.background_image.source = os.path.join(os.path.dirname(__file__), "instructionsDE", "Instruktion1.jpg")
-            self.background_image.reload()
+            self.showing_instructions = False
+            self.instruction_label.opacity = 0
 
     def start_experiment(self):
         """Start the experiment after instruction phase"""
         self.in_instruction_phase = False
         self.in_experiment_phase = True
+        self.instruction_label.opacity = 0
         self.fixation_cross.opacity = 1
         
         # DEBUG: Run clock accuracy test first
