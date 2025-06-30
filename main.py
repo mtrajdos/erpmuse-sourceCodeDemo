@@ -66,7 +66,7 @@ class EmoScenes(App):
         self.connection_lost_screen_active = False
         
         # Language
-        self.lang = 'DE'
+        self.lang = "EN"
         
         # Generate random ISIs between 1-3 seconds for 50,000 trials
         self.ISIs = np.random.uniform(1.000000, 3.000000, 50000)
@@ -75,6 +75,16 @@ class EmoScenes(App):
         self.next_trial_scheduled = None
         self.stimulus_currently_displayed = False
         self.showing_instructions = True
+        
+        # Label strings
+        self.instruction_message_DE = "Verschiedene Bilder werden auf dem Bildschirm vor Ihnen gezeigt. Bitte betrachten Sie diese aufmerksam. Richten Sie Ihren Blick stets auf den roten Kreuz in der Mitte des Bildschirms und versuchen Sie dabei möglichst still zu sitzen. Wenn Sie Fragen haben, können Sie diese jetzt stellen. Ansonsten tippen Sie irgendwo auf den Bildschirm, wenn Sie startbereit sind."
+        self.disconnect_message_DE = "Verbindung unterbrochen\n\nWarten auf EEG-Signal...\n\nDas Experiment wird automatisch fortgesetzt,\nsobald die Verbindung wiederhergestellt ist."
+        
+        self.instruction_message_PL = "Zostaną Państwu pokazane różne obrazy na ekranie przed Państwem. Proszę uważnie je obserwować. Proszę zawsze patrzeć na czerwony krzyż w centrum ekranu i starać się siedzieć jak najspokojniej. Jeśli mają Państwo pytania, można je zadać teraz. W przeciwnym razie proszę dotknąć ekran w dowolnym miejscu, aby rozpocząć."
+        self.disconnect_message_PL = "Połączenie przerwane\n\nOczekiwanie na sygnał EEG...\n\nEksperyment zostanie automatycznie wznowiony\npo przywróceniu połączenia."
+        
+        self.instruction_message_EN = "Various images will be shown to you on the screen in front of you. Please observe these carefully. Keep your gaze always on the red cross in the center of the screen and try to sit as still as possible. If you have questions, you can ask them now. Otherwise, please tap anywhere on the screen to start."
+        self.disconnect_message_EN = "Connection Interrupted\n\nWaiting for EEG signal...\n\nThe experiment will resume automatically\nwhen connection is restored."
         
         # Stimulus configuration
         self.stimuli = {
@@ -267,7 +277,6 @@ class EmoScenes(App):
         
         # Connection interruption label
         self.interruption_label = Label(
-            text='Connection Interrupted\n\nWaiting for EEG signal...\n\nThe experiment will resume automatically\nwhen connection is restored.',
             font_size='24sp',
             text_size=(Window.width * 0.8, None),
             halign='center',
@@ -277,6 +286,14 @@ class EmoScenes(App):
             pos_hint={'center_x': 0.5, 'center_y': 0.5},
             opacity=0
         )
+        
+        if self.lang == "DE":
+            self.interruption_label.text = self.disconnect_message_DE
+        if self.lang == "PL":
+            self.interruption_label.text = self.disconnect_message_PL
+        else:
+            self.interruption_label.text = self.disconnect_message_EN
+
 
         # Add widgets to layout
         self.layout.add_widget(self.background_image)
@@ -774,12 +791,12 @@ class EmoScenes(App):
             self.showing_instructions = True
             self.instruction_label.opacity = 1
             self.instruction_label.align = 'justify'
-            if "DE" in self.lang:
-                self.instruction_label.text = textwrap.fill("Verschiedene Bilder werden auf dem Bildschirm vor Ihnen gezeigt. Bitte betrachten Sie diese aufmerksam. Richten Sie Ihren Blick stets auf den roten Kreuz in der Mitte des Bildschirms und versuchen Sie dabei möglichst still zu sitzen. Wenn Sie Fragen haben, können Sie diese jetzt stellen. Ansonsten tippen Sie irgendwo auf den Bildschirm, wenn Sie startbereit sind.")
-            if "PL" in self.lang:
-                self.instruction_label.text = textwrap.fill("Zostaną Państwu pokazane różne obrazy na ekranie przed Państwem. Proszę uważnie je obserwować. Proszę zawsze patrzeć na czerwony krzyż w centrum ekranu i starać się siedzieć jak najspokojniej. Jeśli mają Państwo pytania, można je zadać teraz. W przeciwnym razie proszę dotknąć ekran w dowolnym miejscu, aby rozpocząć.")
+            if self.lang == "DE":
+                self.instruction_label.text = textwrap.fill(self.instruction_message_DE)
+            if self.lang == "PL":
+                self.instruction_label.text = textwrap.fill(self.instruction_message_PL)
             else:
-                self.instruction_label.text = textwrap.fill("Various images will be shown to you on the screen in front of you. Please observe these carefully. Keep your gaze always on the red cross in the center of the screen and try to sit as still as possible. If you have questions, you can ask them now. Otherwise, please tap anywhere on the screen to start.")
+                self.instruction_label.text = textwrap.fill(self.instruction_message_EN)
                 self.background_image.reload()
         else:
             self.showing_instructions = False
