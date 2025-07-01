@@ -50,9 +50,6 @@ class EmoScenes(App):
         # DEBUG: Timing diagnostics
         self.timing_diagnostics = []
         self.clock_test_results = []
-        
-        # Attribute for the refresh rate measurement event
-        self._refresh_rate_event = None
 
     def initialize_variables(self):
         """Initialize all experiment variables and load stimuli"""
@@ -114,7 +111,7 @@ class EmoScenes(App):
         osc_receiver.start()
 
     def setup_platform_specifics(self):
-        """Configure platform-specific settings and get an initial refresh rate estimate."""
+        """Configure platform-specific settings"""
         # Always use POSIX timestamps
         self.get_time = time.time
         
@@ -126,66 +123,23 @@ class EmoScenes(App):
             # Set the log directory for Android
             self.log_dir = "/storage/emulated/0/Download/logs"
 
-            # Apply Android-specific process priority and display mode
+            # Apply Android-specific process priority
             if kivy_platform == 'android':
                 try:
-                    from jnius import autoclass, PythonJavaClass, java_method
-
+                    from jnius import autoclass
+                    
                     # Set high thread priority for timing critical operations
                     Process = autoclass('android.os.Process')
                     Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
                     Logger.info("Set Android thread priority to URGENT_DISPLAY")
-
-                    # Define a Runnable class to execute our UI code on the main UI thread
-                    class SetDisplayMode(PythonJavaClass):
-                        __javainterfaces__ = ['java/lang/Runnable']
-                        
-                        def __init__(self, activity, best_mode_id, refresh_rate):
-                            super().__init__()
-                            self.activity = activity
-                            self.best_mode_id = best_mode_id
-                            self.refresh_rate = refresh_rate
-
-                        @java_method('()V')
-                        def run(self):
-                            try:
-                                window = self.activity.getWindow()
-                                attrs = window.getAttributes()
-                                attrs.preferredDisplayModeId = self.best_mode_id
-                                window.setAttributes(attrs)
-                                Logger.info(f"Successfully set preferred display mode on UI thread: {self.refresh_rate}Hz")
-                            except Exception as e:
-                                Logger.error(f"Failed to set display mode even on UI thread: {e}")
-
-                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
-                    activity = PythonActivity.mActivity
                     
-                    display = activity.getWindowManager().getDefaultDisplay()
-                    
-                    modes = display.getSupportedModes()
-                    if modes:
-                        # Find mode with highest refresh rate
-                        best_mode = max(modes, key=lambda m: m.getRefreshRate())
-                        
-                        # Schedule the UI operation on the main UI thread
-                        activity.runOnUiThread(SetDisplayMode(activity, best_mode.getModeId(), best_mode.getRefreshRate()))
-                        
-                        # Optimistically set the refresh rate for logging.
-                        # The measurement will still run and can correct it if needed as a fallback.
-                        self.display_refresh_rate = best_mode.getRefreshRate()
-                    else:
-                        self.display_refresh_rate = 60.0 # Fallback if no modes found
-
                 except Exception as e:
-                    Logger.warning(f"Could not set preferred display mode via native calls: {e}. Will rely on measurement.")
-                    self.display_refresh_rate = 60.0
+                    Logger.warning(f"Could not set Android thread priority: {e}")
 
         else:
             Logger.info(f"PC platform detected: {kivy_platform}")
             self.is_mobile = False
             self.log_dir = os.path.join(os.getcwd(), "logs")
-            # Set a temporary default for PC. The measurement will provide the real value.
-            self.display_refresh_rate = 60.0
 
     def load_square_images(self):
         """Dynamically load all brightness square images from sprites folder"""
@@ -323,7 +277,6 @@ class EmoScenes(App):
             f"# System_Time: {timestamp}\n"
             f"# Platform: {platform.system()}\n"
             f"# Mobile_Platform: {self.is_mobile}\n"
-            f"# Display_Refresh_Rate_Initial: {self.display_refresh_rate}Hz (Note: This is the initial estimate before measurement)\n"
             f"# ISI_Range: {np.min(self.ISIs):.6f} - {np.max(self.ISIs):.6f}\n"
             f"# Images_N: {len(self.preloaded_images)}\n"
             f"# Log_Path: {self.log_file_path}\n"
@@ -339,53 +292,6 @@ class EmoScenes(App):
         self.datafilepointer.flush()
         
         self.experiment_start_time = experiment_start_time
-
-    # --- START: NEW METHODS FOR DYNAMIC REFRESH RATE DETECTION ---
-
-    def _update_frame_time(self, dt):
-        """Internal callback for refresh rate measurement, called every frame."""
-        # Collect 120 valid frame time samples (dt > 0)
-        if len(self._frame_times) < 120 and dt > 0:
-            self._frame_times.append(dt)
-        else:
-            # Once enough samples are collected, calculate the rate
-            if self._refresh_rate_event:
-                self._refresh_rate_event.cancel()
-                self._refresh_rate_event = None
-
-            # To increase accuracy, discard first few frames which might be unstable
-            stable_frame_times = self._frame_times[10:]
-            if stable_frame_times:
-                avg_dt = sum(stable_frame_times) / len(stable_frame_times)
-                self.display_refresh_rate = 1.0 / avg_dt
-                Logger.info(f"Dynamic refresh rate measured: {self.display_refresh_rate:.2f} Hz")
-            else:
-                Logger.warning("Refresh rate measurement failed. Keeping initial value.")
-            
-            # Log the final measured value for record-keeping
-            self.log_measured_refresh_rate()
-
-            # Proceed with the application startup
-            self.show_instructions()
-
-    def measure_and_start(self):
-        """Starts the refresh rate measurement process."""
-        Logger.info("Starting dynamic refresh rate measurement...")
-        self._frame_times = []
-        # Schedule the measurement function to run on each frame
-        self._refresh_rate_event = Clock.schedule_interval(self._update_frame_time, 0)
-    
-    def log_measured_refresh_rate(self):
-        """Writes the accurately measured refresh rate to the log file."""
-        if hasattr(self, 'datafilepointer') and self.datafilepointer:
-            log_entry = (f"# MEASUREMENT,"
-                         f"{self.get_time():.6f},"
-                         f"Measured_Refresh_Rate,"
-                         f"{self.display_refresh_rate:.4f}\n")
-            self.datafilepointer.write(log_entry)
-            self.datafilepointer.flush()
-
-    # --- END: NEW METHODS FOR DYNAMIC REFRESH RATE DETECTION ---
 
     def load_and_categorize_stimulus_files(self):
         """Load and categorize all stimulus files"""
@@ -892,7 +798,7 @@ class EmoScenes(App):
         self.stop()
 
     def on_start(self):
-        """Called when app starts. Initiates refresh rate measurement."""
+        """Called when app starts"""
         Window.fullscreen = "auto"
         # Hide all elements initially
         self.background_image.opacity = 0
@@ -900,9 +806,8 @@ class EmoScenes(App):
         for square in self.squares.values():
             square.opacity = 0
         
-        # Instead of showing instructions directly, start the measurement process.
-        # The measurement callback will then call show_instructions.
-        self.measure_and_start()
+        # Show instructions directly
+        self.show_instructions()
 
 if __name__ == "__main__":
     try:
