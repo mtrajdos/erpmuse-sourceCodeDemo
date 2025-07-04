@@ -13,7 +13,7 @@ class Config:
     FIXATION_SIZE_RATIO = 0.05
     INSTRUCTION_FONT_SIZE = '24sp'
     INSTRUCTION_TEXT_WIDTH_RATIO = 0.8
-    SQUARE_SIZE = (110, 110)
+    SQUARE_SIZE = (150, 150)
     BACKGROUND_COLOR = (119/255, 119/255, 119/255)
     
     # Experiment configuration
