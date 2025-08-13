@@ -29,7 +29,7 @@ package.domain = org.es
 source.dir = .
 
 # (list) Source files to include (leave empty to include all the files)
-source.include_exts = pyc,py,png,jpg,txt,csv,kv,atlas,json
+source.include_exts = py,png,jpg,jpeg,txt,csv,kv,atlas,json
 
 # (list) List of inclusions using pattern matching
 #source.include_patterns = assets/*,images/*.png
@@ -53,7 +53,7 @@ version = 1.1
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3,kivy,android,plyer,pytz,numpy,python-osc,osc,oscpy,pyjnius
+requirements = python3,kivy,android,plyer,pytz,numpy,python-osc,osc,oscpy,pyjnius,pillow
 
 # (str) Custom source folders for requirements
 # Sets custom source for any requirements with recipes

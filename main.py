@@ -13,6 +13,7 @@ from experiment_param_controller import ExperimentParamController
 from ui_controller import UIController
 from connection_monitor import ConnectionMonitor
 from osc_receiver import osc_receiver
+from stimuli_analyzer import StimuliAnalyzer
 
 # Window configuration (must be before other imports)
 Window.borderless = True
@@ -27,6 +28,9 @@ class EmoScenes(App):
         
         # Initialize configuration
         self.config = AppConfig()
+        
+        # Initialize stimuli analyzer
+        self.stimuli_analyzer = StimuliAnalyzer()
         
         # Initialize controllers
         self.param_controller = ExperimentParamController()
@@ -83,6 +87,13 @@ class EmoScenes(App):
     def on_start(self):
         """Called when app starts"""
         Window.fullscreen = "auto"
+        
+        # Run stimuli complexity analysis BEFORE experiment initialization
+        Logger.info("Running stimuli complexity and brightness analysis...")
+        try:
+            self.stimuli_analyzer.analyze_all_categories()
+        except Exception as e:
+            Logger.error(f"Error during stimuli analysis: {e}")
         
         # Initialize experiment parameters
         experiment_params = self.param_controller.get_experiment_params()
