@@ -7,12 +7,19 @@ from kivy.logger import Logger
 from kivy.uix.image import Image as KivyImage
 import numpy as np
 
+# Import the vector controller
+from vector_sequence_controller import VectorSequenceController
+
+
 class ExperimentFlowController:
     def __init__(self, config, ui_controller, logger, connection_monitor):
         self.config = config
         self.ui_controller = ui_controller
         self.logger = logger
         self.connection_monitor = connection_monitor
+        
+        # Initialize vector controller
+        self.vector_controller = VectorSequenceController(config)
         
         # Experiment state
         self.current_trial = 1
@@ -39,6 +46,10 @@ class ExperimentFlowController:
             'folder': self.config.STIMULI_FOLDER
         }
         
+        # Category-specific counters for vector approach (like MATLAB)
+        self.category_pools = {}
+        self.category_counters = {}
+        
         # Preloaded images
         self.preloaded_images = {}
         
@@ -51,7 +62,10 @@ class ExperimentFlowController:
         """Initialize experiment flow with parameters"""
         self.experiment_params = experiment_params
         self.load_and_categorize_stimulus_files()
-        self.create_randomized_stimulus_sequence()
+        
+        # Use vector-based sequence instead of random
+        self.create_vector_based_sequence()
+        
         self.preload_images()
         
     def load_and_categorize_stimulus_files(self):
@@ -86,31 +100,77 @@ class ExperimentFlowController:
             count = len(self.stimuli['files_per_category'][category])
             Logger.info(f"Loaded {count} stimuli for category: {category}")
     
-    def create_randomized_stimulus_sequence(self):
-        """Create randomized sequence of stimulus blocks"""
+    def create_vector_based_sequence(self):
+        """Create stimulus sequence using vector approach (replaces create_randomized_stimulus_sequence)"""
+        # Calculate total trials
+        total_trials = (self.config.STIMULI_PER_CATEGORY * 
+                       len(self.config.CATEGORIES) * 
+                       self.config.TOTAL_BLOCKS)
+        
+        # Get category sequence from vector controller
+        category_sequence = self.vector_controller.load_or_create_vector(total_trials)
+        
+        # Initialize category pools (like MATLAB's shuffled arrays)
+        for category in self.config.CATEGORIES:
+            if category in self.stimuli['files_per_category']:
+                pool = self.stimuli['files_per_category'][category].copy()
+                random.shuffle(pool)
+                self.category_pools[category] = pool
+                self.category_counters[category] = 0
+        
+        # Build actual stimulus sequence from category vector
         self.stimuli['sequence'] = []
         
-        # Create randomized blocks
-        for _ in range(self.config.TOTAL_BLOCKS):
-            block_stimuli = []
+        for trial_idx, category in enumerate(category_sequence):
+            # Reshuffle at specific points (like MATLAB at trials 101, 201)
+            if trial_idx in [100, 200, 300, 400, 500]:
+                self._reshuffle_category_pools()
             
-            # Sample from each category
-            for category in self.stimuli['categories']:
-                available = self.stimuli['files_per_category'][category]
-                needed = self.stimuli['per_category']
-                
-                if len(available) >= needed:
-                    selected = random.sample(available, needed)
-                    block_stimuli.extend(selected)
-                else:
-                    Logger.warning(f"Category {category} has only {len(available)} stimuli")
-                    block_stimuli.extend(available)
-            
-            # Shuffle block
-            random.shuffle(block_stimuli)
-            self.stimuli['sequence'].extend(block_stimuli)
+            # Get next image from category
+            image = self._get_next_image_for_category(category)
+            if image:
+                self.stimuli['sequence'].append(image)
         
-        Logger.info(f"Created sequence with {len(self.stimuli['sequence'])} stimuli")
+        Logger.info(f"Created vector-based sequence with {len(self.stimuli['sequence'])} stimuli")
+    
+    def _get_next_image_for_category(self, category):
+        """Get next image from category pool (like MATLAB's counter system)"""
+        if category not in self.category_pools:
+            Logger.error(f"Category {category} not found in pools")
+            return None
+        
+        pool = self.category_pools[category]
+        if not pool:
+            Logger.error(f"Empty pool for category {category}")
+            return None
+        
+        # Get current counter
+        counter = self.category_counters[category]
+        
+        # Reset counter if exceeds pool size (like MATLAB's reset at 26)
+        if counter >= len(pool):
+            counter = 0
+            # Reshuffle this category when cycling
+            random.shuffle(self.category_pools[category])
+        
+        # Get image and increment counter
+        image = pool[counter]
+        self.category_counters[category] = counter + 1
+        
+        return image
+    
+    def _reshuffle_category_pools(self):
+        """Reshuffle all category pools (like MATLAB at trials 101, 201)"""
+        for category in self.category_pools:
+            random.shuffle(self.category_pools[category])
+        Logger.info("Reshuffled category pools")
+    
+    def create_randomized_stimulus_sequence(self):
+        """Legacy method - now uses vector-based approach"""
+        Logger.info("Using vector-based sequence generation")
+        self.create_vector_based_sequence()
+    
+    # ============ ALL OTHER METHODS REMAIN EXACTLY THE SAME ============
     
     def preload_images(self):
         """Preload all stimulus images into memory"""

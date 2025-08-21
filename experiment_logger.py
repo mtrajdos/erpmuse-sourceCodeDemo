@@ -1,10 +1,9 @@
 """Handles all experiment data logging"""
 import os
 import time
-from datetime import datetime
-import pytz
 import platform
 from kivy.logger import Logger
+import session
 
 class ExperimentLogger:
     def __init__(self, config):
@@ -18,8 +17,7 @@ class ExperimentLogger:
         os.makedirs(self.config.LOG_DIR, exist_ok=True)
         
         # Create log file with timestamp
-        timestamp = datetime.now(pytz.timezone("Europe/Berlin")).strftime("%Y%m%d_%H%M%S")
-        self.log_file_path = os.path.join(self.config.LOG_DIR, f"EmoScenes_{timestamp}.txt")
+        self.log_file_path = os.path.join(self.config.LOG_DIR,f"EmoScenes_{session.SESSION_TIMESTAMP}.txt")
         self.log_file = open(self.log_file_path, "w")
         
         # Record experiment start time
@@ -38,7 +36,7 @@ class ExperimentLogger:
         return (
             f"# Experiment Info:\n"
             f"# POSIX_Start: {self.experiment_start_time:.6f}\n"
-            f"# System_Time: {datetime.now(pytz.timezone('Europe/Berlin')).strftime('%Y%m%d_%H%M%S')}\n"
+            f"# System_Time: {session.SESSION_TIMESTAMP}\n"
             f"# Platform: {platform.system()}\n"
             f"# Mobile_Platform: {self.config.IS_MOBILE}\n"
             f"# ISI_Range: {params['isi_min']:.6f} - {params['isi_max']:.6f}\n"
@@ -58,8 +56,10 @@ class ExperimentLogger:
             Logger.error("Attempted to log trial before initialization")
             return
             
+        current_posix = session.get_elapsed_time()
+            
         log_entry = (
-            f"{trial_data['timestamp']:.6f},"
+            f"{current_posix:.6f},"
             f"{trial_data['block_trial']},"
             f"{trial_data['stim_file']},"
             f"{trial_data['stim_on']:.6f},"
