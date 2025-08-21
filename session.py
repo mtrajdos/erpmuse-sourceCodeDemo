@@ -4,7 +4,7 @@ import time
 
 SESSION_TIMESTAMP = datetime.now().strftime('%d%b%Y_%H-%M-%S').upper()
 
-# Optional: Add utility functions
+"""Utility functions"""
 def get_elapsed_time():
     """Get POSIX time"""
     return time.time()
