@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from kivy.logger import Logger
 import session
+from kivy.utils import platform as kivy_platform
+import os
 
 
 class VectorSequenceController:
@@ -11,8 +13,12 @@ class VectorSequenceController:
     
     def __init__(self, config):
         self.config = config
-        self.vector_dir = Path(config.BASE_DIR) / "vectors"
-        self.vector_dir.mkdir(exist_ok=True)
+
+        if kivy_platform in ('android', 'ios'):
+            self.vector_dir = Path("/storage/emulated/0/Download/vectors")
+        else:
+            self.vector_dir = Path(os.path.join(os.getcwd(), "vectors"))
+        
         self.category_sequence = []
         self.current_vector_file = None
     
