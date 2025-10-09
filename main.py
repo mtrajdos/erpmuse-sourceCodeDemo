@@ -12,8 +12,9 @@ from experiment_flow_controller import ExperimentFlowController
 from experiment_param_controller import ExperimentParamController
 from ui_controller import UIController
 from connection_monitor import ConnectionMonitor
-from osc_receiver import osc_receiver
+# REMOVED: from osc_receiver import osc_receiver  <-- DELETE THIS LINE
 from stimuli_analyzer import StimuliAnalyzer
+from services import Services  # ADD THIS
 
 # Window configuration (must be before other imports)
 Window.borderless = True
@@ -26,8 +27,11 @@ class EmoScenes(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
-        # Initialize configuration
+        # Initialize configuration FIRST
         self.config = AppConfig()
+        
+        # Start services
+        Services.start_all()
         
         # Initialize stimuli analyzer
         self.stimuli_analyzer = StimuliAnalyzer()
@@ -36,7 +40,12 @@ class EmoScenes(App):
         self.param_controller = ExperimentParamController()
         self.logger = ExperimentLogger(self.config)
         self.ui_controller = UIController(self.config, self.param_controller)
-        self.connection_monitor = ConnectionMonitor(osc_receiver, self.config)
+        
+        # Create connection monitor with the OSC receiver from Services
+        self.connection_monitor = ConnectionMonitor(
+            Services.get_osc_receiver(),  # Use Services
+            self.config
+        )
         
         # Initialize flow controller with dependencies
         self.flow_controller = ExperimentFlowController(
@@ -52,8 +61,7 @@ class EmoScenes(App):
         # Setup callbacks
         self._setup_callbacks()
         
-        # Start OSC receiver
-        osc_receiver.start()
+        # OSC receiver is already started by Services.start_all()
         
     def _setup_platform(self):
         """Configure platform-specific settings"""
@@ -119,8 +127,8 @@ class EmoScenes(App):
         # Stop monitoring
         self.connection_monitor.stop_monitoring()
         
-        # Stop OSC receiver
-        osc_receiver.stop()
+        # Stop OSC receiver through Services
+        Services.stop_all()  # Use Services
         
         # Close logger
         self.logger.close()
