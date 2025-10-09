@@ -1,12 +1,10 @@
 """Vector-based pseudo-random sequence controller"""
 import random
-from datetime import datetime
 from pathlib import Path
 from kivy.logger import Logger
 import session
 from kivy.utils import platform as kivy_platform
 import os
-
 
 class VectorSequenceController:
     """Creates and manages pseudo-random stimulus sequences using category vectors"""
@@ -32,9 +30,6 @@ class VectorSequenceController:
             List of category names in presentation order
         """
         try:
-            # Ensure directory exists
-            self.vector_dir.mkdir(parents=True, exist_ok=True)
-            
             # Check for existing vector files
             Logger.info(f"Checking for vectors in: {self.vector_dir}")
             
@@ -48,9 +43,10 @@ class VectorSequenceController:
             
             if existing_vectors:
                 # Use most recent vector file
-                vector_file = sorted(existing_vectors)[-1]
-                Logger.info(f"Loading existing vector: {vector_file.name}")
-                self.category_sequence = self._load_vector_file(vector_file)
+                path_objects = [Path(p) for p in existing_vectors]
+                latest_file_path = sorted(path_objects, key=lambda p: p.stat().st_mtime)[-1]
+                Logger.info(f"Loading existing vector: {latest_file_path.name}")
+                self.category_sequence = self._load_vector_file(latest_file_path)
             else:
                 # Create new vector
                 Logger.info(f"No vector file found. Creating new vector with {total_stimuli} stimuli")

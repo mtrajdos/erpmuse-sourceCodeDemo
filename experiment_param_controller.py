@@ -5,9 +5,9 @@ import textwrap
 class ExperimentParamController:
     def __init__(self):
         # Timing configuration
-        self.stim_duration = 0.600000  # 600ms
-        self.isi_min = 1.000000
-        self.isi_max = 3.000000
+        self.stim_duration = 0.300000  # 300ms, three stim per second (together with two ISIs)
+        self.isi_min = 0.005000
+        self.isi_max = 0.011000
         self.total_trials = 50000
         
         # Generate ISIs
