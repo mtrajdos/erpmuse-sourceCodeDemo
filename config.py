@@ -15,7 +15,7 @@ class Config:
         ISI_MIN = 0.025
         ISI_MAX = 0.050
         OSC_TIMEOUT_THRESHOLD = 1.0
-        CONNECTION_CHECK_INTERVAL = 0.100
+        CONNECTION_CHECK_INTERVAL = 0.300
     else:
         # Normal mode timing (in seconds)
         STIM_DURATION = 0.600
