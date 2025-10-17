@@ -11,9 +11,9 @@ class Config:
     # =================== TIMING PARAMETERS ===================
     if SPEED_TEST_MODE:
         # Speed test mode timing (in seconds)
-        STIM_DURATION = 0.300
-        ISI_MIN = 0.025
-        ISI_MAX = 0.050
+        STIM_DURATION = 0.350
+        ISI_MIN = 0.200
+        ISI_MAX = 0.400
         OSC_TIMEOUT_THRESHOLD = 1.0
         CONNECTION_CHECK_INTERVAL = 0.300
     else:
