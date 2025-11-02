@@ -6,7 +6,7 @@ from kivy.utils import platform as kivy_platform
 class Config:    
     # =================== EXPERIMENT MODE ===================
     # Set this to True for ultra-fast testing
-    SPEED_TEST_MODE = True
+    SPEED_TEST_MODE = False
     
     # =================== TIMING PARAMETERS ===================
     if SPEED_TEST_MODE:
