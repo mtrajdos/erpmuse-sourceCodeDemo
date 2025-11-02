@@ -39,28 +39,47 @@ class VectorSequenceController:
     def load_or_create_vector(self, total_stimuli=5000):
         """Load existing vector file or create new one if not available."""
         try:
-            # FORCE LOAD THE SPECIFIC FILE
+            # DIRECT PATH
             specific_file = "VECTOR-50000-STIMULI-25AUG2025_12-12-28.txt"
-            filepath = self.vector_dir / specific_file
+            filepath = Path("/storage/emulated/0/Download/vectors") / specific_file
             
-            Logger.info(f"Attempting to force load: {filepath}")
+            Logger.info(f"Loading vector from: {filepath}")
             
             if filepath.exists():
-                Logger.info(f"Found vector file at: {filepath}")
-                self.category_sequence = self._load_vector_file(filepath)
-                Logger.info(f"Successfully loaded {len(self.category_sequence)} items")
-                return self.category_sequence
-            else:
-                Logger.error(f"Vector file not found at: {filepath}")
-                Logger.info(f"Checking directory: {self.vector_dir.absolute()}")
-                if self.vector_dir.exists():
-                    Logger.info(f"Files present: {[f.name for f in self.vector_dir.iterdir()]}")
+                # Clear and load sequence
+                self.category_sequence = []
                 
-                # Fall back to creating new vector
-                Logger.info(f"Creating new vector with {total_stimuli} stimuli")
+                with open(filepath, 'r') as f:
+                    lines = f.readlines()
+                
+                # Find where actual sequence starts (after the empty line)
+                start_reading = False
+                for line in lines:
+                    line = line.strip()
+                    
+                    if start_reading:
+                        if line in self.config.CATEGORIES:
+                            self.category_sequence.append(line)
+                    elif not line and len(self.category_sequence) == 0:
+                        # Empty line after header means sequence starts next
+                        start_reading = True
+                
+                self.current_vector_file = filepath
+                Logger.info(f"Loaded {len(self.category_sequence)} items")
+                Logger.info(f"First 5 categories from vector: {self.category_sequence[:5]}")
+                
+                return self.category_sequence
+                
+            else:
+                Logger.error(f"File not found: {filepath}")
                 self.category_sequence = self._create_vector_sequence(total_stimuli)
                 self._save_vector_file(self.category_sequence, total_stimuli)
                 return self.category_sequence
+                
+        except Exception as e:
+            Logger.error(f"Error: {e}")
+            self.category_sequence = self._create_vector_sequence(total_stimuli)
+            return self.category_sequence
                 
         except Exception as e:
             Logger.error(f"Error loading vector: {e}")
