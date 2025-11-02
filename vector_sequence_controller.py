@@ -21,42 +21,49 @@ class VectorSequenceController:
         
         self.category_sequence = []
         self.current_vector_file = None
+        
+    def force_load_specific_vector(self, filename="VECTOR-50000-STIMULI-25AUG2025_12-12-28.txt"):
+        """Force load a specific vector file"""
+        filepath = self.vector_dir / filename
+        
+        if not filepath.exists():
+            Logger.error(f"Vector file not found at: {filepath}")
+            Logger.info(f"Looking in directory: {self.vector_dir}")
+            Logger.info(f"Directory contents: {list(self.vector_dir.iterdir())}")
+            raise FileNotFoundError(f"Vector file not found: {filepath}")
+        
+        Logger.info(f"Force loading vector: {filepath}")
+        self.category_sequence = self._load_vector_file(filepath)
+        return self.category_sequence
     
     def load_or_create_vector(self, total_stimuli=5000):
-        """
-        Load existing vector file or create new one if not available.
-        
-        Returns:
-            List of category names in presentation order
-        """
+        """Load existing vector file or create new one if not available."""
         try:
-            # Check for existing vector files
-            Logger.info(f"Checking for vectors in: {self.vector_dir}")
+            # FORCE LOAD THE SPECIFIC FILE
+            specific_file = "VECTOR-50000-STIMULI-25AUG2025_12-12-28.txt"
+            filepath = self.vector_dir / specific_file
             
-            # List all files first to debug
-            if self.vector_dir.exists():
-                all_files = list(self.vector_dir.iterdir())
-                Logger.info(f"Files in directory: {[f.name for f in all_files]}")
+            Logger.info(f"Attempting to force load: {filepath}")
             
-            existing_vectors = list(self.vector_dir.glob("VECTOR-*-STIMULI-*.txt"))
-            Logger.info(f"Found {len(existing_vectors)} vector files")
-            
-            if existing_vectors:
-                # Use most recent vector file
-                path_objects = [Path(p) for p in existing_vectors]
-                latest_file_path = sorted(path_objects, key=lambda p: p.stat().st_mtime)[-1]
-                Logger.info(f"Loading existing vector: {latest_file_path.name}")
-                self.category_sequence = self._load_vector_file(latest_file_path)
+            if filepath.exists():
+                Logger.info(f"Found vector file at: {filepath}")
+                self.category_sequence = self._load_vector_file(filepath)
+                Logger.info(f"Successfully loaded {len(self.category_sequence)} items")
+                return self.category_sequence
             else:
-                # Create new vector
-                Logger.info(f"No vector file found. Creating new vector with {total_stimuli} stimuli")
+                Logger.error(f"Vector file not found at: {filepath}")
+                Logger.info(f"Checking directory: {self.vector_dir.absolute()}")
+                if self.vector_dir.exists():
+                    Logger.info(f"Files present: {[f.name for f in self.vector_dir.iterdir()]}")
+                
+                # Fall back to creating new vector
+                Logger.info(f"Creating new vector with {total_stimuli} stimuli")
                 self.category_sequence = self._create_vector_sequence(total_stimuli)
                 self._save_vector_file(self.category_sequence, total_stimuli)
-            
-            return self.category_sequence
-            
+                return self.category_sequence
+                
         except Exception as e:
-            Logger.error(f"Error in load_or_create_vector: {e}")
+            Logger.error(f"Error loading vector: {e}")
             # Fallback to creating new vector
             self.category_sequence = self._create_vector_sequence(total_stimuli)
             return self.category_sequence
