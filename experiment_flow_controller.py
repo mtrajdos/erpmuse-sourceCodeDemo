@@ -107,7 +107,7 @@ class ExperimentFlowController():
                        self.config.TOTAL_BLOCKS)
         
         # Get category sequence from vector controller
-        category_sequence = self.vector_controller.load_or_create_vector(total_trials)
+        category_sequence = self.vector_controller.load_vector()
         
         # Initialize category pools (like MATLAB's shuffled arrays)
         for category in self.config.CATEGORIES:
