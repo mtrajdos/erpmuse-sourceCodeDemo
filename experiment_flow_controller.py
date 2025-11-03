@@ -45,7 +45,7 @@ class ExperimentFlowController():
             'folder': self.config.STIMULI_FOLDER
         }
         
-        # Category-specific counters for vector approach (like MATLAB)
+        # Category-specific counters for vector approach
         self.category_pools = {}
         self.category_counters = {}
         
@@ -62,7 +62,7 @@ class ExperimentFlowController():
         self.experiment_params = experiment_params
         self.load_and_categorize_stimulus_files()
         
-        # Use vector-based sequence instead of random
+        # Use vector-based sequence
         self.create_vector_based_sequence()
         
         self.preload_images()
@@ -100,40 +100,75 @@ class ExperimentFlowController():
             Logger.info(f"Loaded {count} stimuli for category: {category}")
     
     def create_vector_based_sequence(self):
-        """Create stimulus sequence using vector approach (replaces create_randomized_stimulus_sequence)"""
+        """Create stimulus sequence using vector approach"""
         # Calculate total trials
         total_trials = (self.config.STIMULI_PER_CATEGORY * 
                        len(self.config.CATEGORIES) * 
                        self.config.TOTAL_BLOCKS)
         
-        # Get category sequence from vector controller
-        category_sequence = self.vector_controller.load_vector()
+        try:
+            # Get category sequence from vector controller
+            category_sequence = self.vector_controller.load_vector()
+            
+            if not category_sequence:
+                raise ValueError("Vector loaded but sequence is empty")
+                
+        except (FileNotFoundError, ValueError) as e:
+            Logger.error(f"Error loading vector: {e}")
+            Logger.warning("Creating fallback random sequence")
+            # Create fallback sequence
+            category_sequence = self._create_fallback_sequence(total_trials)
         
-        # Initialize category pools (like MATLAB's shuffled arrays)
+        # Initialize category pools
         for category in self.config.CATEGORIES:
             if category in self.stimuli['files_per_category']:
                 pool = self.stimuli['files_per_category'][category].copy()
-                random.shuffle(pool)
-                self.category_pools[category] = pool
-                self.category_counters[category] = 0
+                if pool:  # Only shuffle if pool has items
+                    random.shuffle(pool)
+                    self.category_pools[category] = pool
+                    self.category_counters[category] = 0
+                else:
+                    Logger.warning(f"No images found for category: {category}")
+                    self.category_pools[category] = []
+                    self.category_counters[category] = 0
         
         # Build actual stimulus sequence from category vector
         self.stimuli['sequence'] = []
         
-        for trial_idx, category in enumerate(category_sequence):
-            # Reshuffle at specific points (like MATLAB at trials 101, 201)
+        # Limit to available categories/images
+        max_trials = min(len(category_sequence), total_trials)
+        
+        for trial_idx in range(max_trials):
+            # Reshuffle at specific points
             if trial_idx in [100, 200, 300, 400, 500]:
                 self._reshuffle_category_pools()
             
-            # Get next image from category
-            image = self._get_next_image_for_category(category)
-            if image:
-                self.stimuli['sequence'].append(image)
+            # Get category for this trial
+            if trial_idx < len(category_sequence):
+                category = category_sequence[trial_idx]
+                # Get next image from category
+                image = self._get_next_image_for_category(category)
+                if image:
+                    self.stimuli['sequence'].append(image)
         
         Logger.info(f"Created vector-based sequence with {len(self.stimuli['sequence'])} stimuli")
     
+    def _create_fallback_sequence(self, total_trials):
+        """Create a simple fallback sequence if vector loading fails"""
+        sequence = []
+        categories = self.config.CATEGORIES
+        
+        # Simple round-robin with some randomization
+        for i in range(total_trials):
+            # Add slight randomization but maintain rough balance
+            if i % 10 == 0:
+                random.shuffle(categories)
+            sequence.append(categories[i % len(categories)])
+        
+        return sequence
+    
     def _get_next_image_for_category(self, category):
-        """Get next image from category pool (like MATLAB's counter system)"""
+        """Get next image from category pool"""
         if category not in self.category_pools:
             Logger.error(f"Category {category} not found in pools")
             return None
@@ -146,7 +181,7 @@ class ExperimentFlowController():
         # Get current counter
         counter = self.category_counters[category]
         
-        # Reset counter if exceeds pool size (like MATLAB's reset at 26)
+        # Reset counter if exceeds pool size
         if counter >= len(pool):
             counter = 0
             # Reshuffle this category when cycling
@@ -159,17 +194,11 @@ class ExperimentFlowController():
         return image
     
     def _reshuffle_category_pools(self):
-        """Reshuffle all category pools (like MATLAB at trials 101, 201)"""
+        """Reshuffle all category pools"""
         for category in self.category_pools:
-            random.shuffle(self.category_pools[category])
+            if self.category_pools[category]:  # Only shuffle non-empty pools
+                random.shuffle(self.category_pools[category])
         Logger.info("Reshuffled category pools")
-    
-    def create_randomized_stimulus_sequence(self):
-        """Legacy method - now uses vector-based approach"""
-        Logger.info("Using vector-based sequence generation")
-        self.create_vector_based_sequence()
-    
-    # ============ ALL OTHER METHODS REMAIN EXACTLY THE SAME ============
     
     def preload_images(self):
         """Preload all stimulus images into memory"""
@@ -289,8 +318,6 @@ class ExperimentFlowController():
         if self.last_stim_off_time and self.current_stim_on_time:
             actual_duration = self.current_stim_off_time - self.current_stim_on_time
             duration_drift = actual_duration - self.config.STIM_DURATION
-            
-            # Just use ISI_MIN as the floor - no need for separate MINIMUM_ISI
             adjusted_isi = max(self.config.ISI_MIN, next_isi - duration_drift)
         else:
             adjusted_isi = next_isi
