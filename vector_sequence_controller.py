@@ -1,17 +1,15 @@
-"""Vector-based pseudo-random sequence controller"""
-import random
+import os
 from pathlib import Path
 from kivy.logger import Logger
-import session
 from kivy.utils import platform as kivy_platform
-import os
+
 
 class VectorSequenceController:
-    """Creates and manages pseudo-random stimulus sequences using category vectors"""
+    """Reads and manages a pre-generated stim sequence vector"""
     
     def __init__(self, config):
         self.config = config
-
+        
         if kivy_platform in ('android', 'ios'):
             self.vector_dir = Path("/storage/emulated/0/Download/vectors")
         else:
@@ -22,198 +20,70 @@ class VectorSequenceController:
         self.category_sequence = []
         self.current_vector_file = None
         
-    def force_load_specific_vector(self, filename="VECTOR-50000-STIMULI-25AUG2025_12-12-28.txt"):
-        """Force load a specific vector file"""
+    def load_vector(self, filename="vector.txt"):
+        """Load vector file from vectors directory"""
         filepath = self.vector_dir / filename
         
         if not filepath.exists():
             Logger.error(f"Vector file not found at: {filepath}")
             Logger.info(f"Looking in directory: {self.vector_dir}")
-            Logger.info(f"Directory contents: {list(self.vector_dir.iterdir())}")
+            Logger.info(f"Available files: {list(self.vector_dir.iterdir())}")
             raise FileNotFoundError(f"Vector file not found: {filepath}")
         
-        Logger.info(f"Force loading vector: {filepath}")
-        self.category_sequence = self._load_vector_file(filepath)
-        return self.category_sequence
-    
-    def load_or_create_vector(self, total_stimuli=5000):
-        """Load existing vector file or create new one if not available."""
+        Logger.info(f"Loading vector from: {filepath}")
+        
         try:
-            # FORCE LOAD THE SPECIFIC FILE
-            specific_file = "VECTOR-50000-STIMULI-25AUG2025_12-12-28.txt"
-            filepath = self.vector_dir / specific_file
+            self.category_sequence = self._read_vector_file(filepath)
+            self.current_vector_file = filepath
             
-            Logger.info(f"Attempting to load vector from: {filepath}")
-            Logger.info(f"File exists: {filepath.exists()}")
-            
-            if filepath.exists():
-                # Use the existing _load_vector_file method which works correctly
-                self.category_sequence = self._load_vector_file(filepath)
-                
-                # Verify it loaded
-                if len(self.category_sequence) > 0:
-                    Logger.info(f"SUCCESS: Loaded {len(self.category_sequence)} categories from vector")
-                    Logger.info(f"First 10 categories: {self.category_sequence[:10]}")
-                    Logger.info(f"Categories should be: highneg, lowneg, highpos, highneg, ...")
-                    return self.category_sequence
-                else:
-                    Logger.error("Vector file exists but sequence is empty!")
-                    raise ValueError("Empty sequence loaded")
-            else:
-                Logger.error(f"Vector file NOT FOUND at: {filepath}")
-                Logger.info(f"Creating new vector with {total_stimuli} stimuli")
-                self.category_sequence = self._create_vector_sequence(total_stimuli)
-                self._save_vector_file(self.category_sequence, total_stimuli)
+            if len(self.category_sequence) > 0:
+                Logger.info(f"Successfully loaded {len(self.category_sequence)} categories from vector")
+                Logger.info(f"First 10 categories: {self.category_sequence[:10]}")
                 return self.category_sequence
+            else:
+                raise ValueError("Vector file exists but sequence is empty!")
                 
         except Exception as e:
-            Logger.error(f"Error in load_or_create_vector: {e}")
+            Logger.error(f"Error loading vector: {e}")
             import traceback
             Logger.error(traceback.format_exc())
-            # Fallback to creating new vector
-            Logger.info("Falling back to creating new vector")
-            self.category_sequence = self._create_vector_sequence(total_stimuli)
-            self._save_vector_file(self.category_sequence, total_stimuli)
-            return self.category_sequence
-    
-    def _create_vector_sequence(self, total_stimuli):
-        """Create pseudo-random sequence with max 3 consecutive same categories"""
-        categories = self.config.CATEGORIES
-        num_categories = len(categories)
-        
-        # Ensure equal distribution
-        if total_stimuli % num_categories != 0:
-            total_stimuli = (total_stimuli // num_categories) * num_categories
-            Logger.warning(f"Adjusted total to {total_stimuli} for equal distribution")
-        
-        stimuli_per_category = total_stimuli // num_categories
-        
-        # Create pool with equal counts
-        pool = []
-        for category in categories:
-            pool.extend([category] * stimuli_per_category)
-        
-        # Shuffle with constraint: no more than 3 consecutive
-        sequence = []
-        attempts = 0
-        max_attempts = 100
-        
-        while attempts < max_attempts:
-            random.shuffle(pool)
-            if self._check_consecutive_constraint(pool, max_consecutive=3):
-                sequence = pool
-                break
-            attempts += 1
-        
-        if not sequence:
-            # Fallback: use constrained building
-            sequence = self._build_constrained_sequence(pool)
-        
-        return sequence
-    
-    def _check_consecutive_constraint(self, sequence, max_consecutive=3):
-        """Check if sequence has no more than max_consecutive same items"""
-        consecutive_count = 1
-        
-        for i in range(1, len(sequence)):
-            if sequence[i] == sequence[i-1]:
-                consecutive_count += 1
-                if consecutive_count > max_consecutive:
-                    return False
-            else:
-                consecutive_count = 1
-        
-        return True
-    
-    def _build_constrained_sequence(self, pool):
-        """Build sequence ensuring no more than 3 consecutive same categories"""
-        sequence = []
-        remaining = pool.copy()
-        random.shuffle(remaining)
-        
-        while remaining:
-            # Pick next item
-            if len(sequence) < 3:
-                # Just add it
-                item = remaining.pop(0)
-                sequence.append(item)
-            else:
-                # Check if we need to avoid same category
-                last_three = sequence[-3:]
-                if len(set(last_three)) == 1:  # All same
-                    # Find different category
-                    found = False
-                    for i, item in enumerate(remaining):
-                        if item != last_three[0]:
-                            sequence.append(remaining.pop(i))
-                            found = True
-                            break
-                    
-                    if not found:
-                        # No choice, add anyway
-                        sequence.append(remaining.pop(0))
-                else:
-                    # Safe to add any
-                    sequence.append(remaining.pop(0))
-        
-        return sequence
-    
-    def _save_vector_file(self, sequence, total_stimuli):
-        """Save vector sequence to file"""
-        timestamp = session.SESSION_TIMESTAMP
-        filename = f"VECTOR-{total_stimuli}-STIMULI-{timestamp}.txt"
-        filepath = self.vector_dir / filename
-        
-        # Calculate category counts
-        category_counts = {cat: sequence.count(cat) for cat in self.config.CATEGORIES}
-        
-        with open(filepath, 'w') as f:
-            # Header
-            f.write(f"Created: {timestamp}\n\n")
-            
-            # Category counts
-            for category in self.config.CATEGORIES:
-                count = category_counts.get(category, 0)
-                f.write(f"n {category}: {count}\n")
-            f.write("\n")
-            
-            # Sequence
-            for category in sequence:
-                f.write(f"{category}\n")
-        
-        self.current_vector_file = filepath
-        Logger.info(f"Saved vector to: {filepath}")
-    
-    def _load_vector_file(self, filepath):
-        """Load vector sequence from file"""
-        sequence = []
-        
-        try:
-            with open(filepath, 'r') as f:
-                lines = f.readlines()
-                
-            # Find where sequence starts (after empty line following counts)
-            sequence_start = False
-            for i, line in enumerate(lines):
-                line = line.strip()
-                
-                # Look for the pattern "n CATEGORY: number"
-                if line.startswith('n ') and ':' in line:
-                    continue
-                
-                # Empty line after counts section
-                if not line and i > 0 and lines[i-1].strip().startswith('n '):
-                    sequence_start = True
-                    continue
-                
-                # Read sequence entries
-                if sequence_start and line in self.config.CATEGORIES:
-                    sequence.append(line)
-            
-            self.current_vector_file = filepath
-            Logger.info(f"Loaded {len(sequence)} categories from vector")
-            return sequence
-            
-        except Exception as e:
-            Logger.error(f"Error loading vector file {filepath}: {e}")
             raise
+    
+    def _read_vector_file(self, filepath):
+        """Read vector sequence from file"""
+        sequence = []
+        
+        with open(filepath, 'r') as f:
+            lines = f.readlines()
+            
+        # Find where sequence starts (after empty line following counts)
+        sequence_start = False
+        for i, line in enumerate(lines):
+            line = line.strip()
+            
+            # Skip header and count lines
+            if line.startswith('Created:') or line.startswith('n '):
+                continue
+            
+            # Empty line after counts section
+            if not line and i > 0:
+                sequence_start = True
+                continue
+            
+            # Read sequence entries
+            if sequence_start and line in self.config.CATEGORIES:
+                sequence.append(line)
+        
+        return sequence
+    
+    def get_category_at_index(self, index):
+        """Get category at specific index in the sequence"""
+        if 0 <= index < len(self.category_sequence):
+            return self.category_sequence[index]
+        else:
+            Logger.warning(f"Index {index} out of range for sequence length {len(self.category_sequence)}")
+            return None
+    
+    def get_sequence_length(self):
+        """Get total length of loaded sequence"""
+        return len(self.category_sequence)
