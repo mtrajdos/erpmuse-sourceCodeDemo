@@ -6,28 +6,23 @@ from kivy.utils import platform as kivy_platform
 
 class VectorSequenceController:
     """Reads and manages a pre-generated stim sequence vector"""
-    
+
     def __init__(self, config):
         self.config = config
-        
-        if kivy_platform in ('android', 'ios'):
-            self.vector_dir = Path("/storage/emulated/0/Download/vectors")
-        else:
-            self.vector_dir = Path(os.path.join(os.getcwd(), "vectors"))
-            
-        self.vector_dir.mkdir(parents=True, exist_ok=True)
+
+        # Use the root directory (where main.py is)
+        script_dir = Path(__file__).parent.resolve()  # Directory of this file
+        self.vector_file = script_dir / "vector.txt"  # Direct file path, no subdir
         
         self.category_sequence = []
         self.current_vector_file = None
-        
+
     def load_vector(self, filename="vector.txt"):
-        """Load vector file from vectors directory"""
-        filepath = self.vector_dir / filename
+        """Load vector file from root directory"""
+        filepath = self.vector_file
         
         if not filepath.exists():
             Logger.error(f"Vector file not found at: {filepath}")
-            Logger.info(f"Looking in directory: {self.vector_dir}")
-            Logger.info(f"Available files: {list(self.vector_dir.iterdir())}")
             raise FileNotFoundError(f"Vector file not found: {filepath}")
         
         Logger.info(f"Loading vector from: {filepath}")
@@ -48,7 +43,7 @@ class VectorSequenceController:
             import traceback
             Logger.error(traceback.format_exc())
             raise
-    
+
     def _read_vector_file(self, filepath):
         """Read vector sequence from file"""
         sequence = []
@@ -75,7 +70,7 @@ class VectorSequenceController:
                 sequence.append(line)
         
         return sequence
-    
+
     def get_category_at_index(self, index):
         """Get category at specific index in the sequence"""
         if 0 <= index < len(self.category_sequence):
@@ -83,7 +78,7 @@ class VectorSequenceController:
         else:
             Logger.warning(f"Index {index} out of range for sequence length {len(self.category_sequence)}")
             return None
-    
+
     def get_sequence_length(self):
         """Get total length of loaded sequence"""
         return len(self.category_sequence)
